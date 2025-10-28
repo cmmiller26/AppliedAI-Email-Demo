@@ -1,7 +1,22 @@
-msal
-httpx
-python-dotenv
-openai
-fastapi
-uvicorn[standard]
-gunicorn
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+
+# HTTP client for Graph API
+httpx==0.25.1
+
+# Authentication
+msal==1.25.0
+
+# OpenAI
+openai==1.3.5
+
+# Environment variables
+python-dotenv==1.0.0
+
+# HTML templates (for dashboard)
+jinja2==3.1.2
+
+# Optional: for better async support
+aiofiles==23.2.1
