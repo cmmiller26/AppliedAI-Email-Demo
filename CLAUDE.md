@@ -15,41 +15,25 @@ Build a secure, policy-compliant email automation service:
 - Use OAuth flows only (Device Code for local testing, Auth Code for web deployment)
 - Ensure endpoints are idempotent; do not reprocess the same `internetMessageId`
 
-## Current Status
+## Documentation Structure
 
-- ✅ `test_device_flow.py` works with the Outlook demo tenant using delegated Mail.Read permissions
-- ⚙️ FastAPI scaffold exists in `app.py`
+**All detailed specifications live in `docs/` folder. Reference these when implementing:**
 
-## Tasks for AI / Developer Assistance
-
-### 1. Implement Auth Code Flow
-
-- `GET /auth/login`: Redirect to Microsoft sign-in
-- `GET /auth/callback`: Exchange code for tokens (store in memory for now)
-
-### 2. Graph Integration
-
-- `GET /graph/fetch?top=10`: Server-side call to `/me/messages`
-
-### 3. Classification Endpoint
-
-- `POST /classify`: Accepts `{subject, preview, body}` → Returns `{label}`
-
-### 4. Storage Layer
-
-- Add lightweight persistence (in-memory dict → later Azure Table/Blob)
-
-### 5. Testing
-
-- Write unit tests for the classifier normalization logic (pure functions)
+| Document | Purpose | When to Reference |
+|----------|---------|-------------------|
+| `docs/API_SPEC.md` | Endpoint definitions, request/response formats | Implementing any endpoint |
+| `docs/CLASSIFICATION_SPEC.md` | AI categories, prompts, OpenAI configuration | Building classifier logic |
+| `docs/ARCHITECTURE.md` | System design, flow diagrams, data models | Understanding component interactions |
+| `docs/POC_ROADMAP.md` | Development plan and task breakdown | Planning daily work |
+| `Enterprise_Authentication...pdf` | University IT security policies | Production compliance (not POC) |
 
 ## Tech Stack
 
-- **Frameworks**: FastAPI + Uvicorn + Gunicorn
+- **Framework**: FastAPI + Uvicorn + Gunicorn
 - **Auth**: MSAL for Python (`PublicClientApplication` for local, `ConfidentialClientApplication` for web)
-- **Networking**: httpx for Graph API calls
-- **AI Integration**: OpenAI for classification
-- **Scheduling (Optional)**: APScheduler for polling and refresh cycles
+- **HTTP Client**: httpx for Graph API calls
+- **AI**: OpenAI API (gpt-4o-mini)
+- **Scheduling** (Optional): APScheduler for polling
 
 ## Environment Variables
 
@@ -61,10 +45,16 @@ Build a secure, policy-compliant email automation service:
 | `OPENAI_API_KEY` | OpenAI API key |
 | `REDIRECT_URI` | OAuth redirect URI — local: `http://localhost:8000/auth/callback`, prod: `https://appliedai-api.azurewebsites.net/auth/callback` |
 
-## Definition of Done (MVP)
+## Testing Account
 
-- `/health` → Returns 200
-- `/auth/login` → Microsoft sign-in → `/auth/callback` stores access token
-- `/graph/fetch` → Returns latest messages as JSON
-- `/classify` → Returns a category string
-- Deployed to Azure App Service with secrets configured in App Settings
+- Demo email: `appliedai.demo@outlook.com`
+- Used for OAuth testing (no access to real @uiowa.edu accounts yet)
+
+## AI Assistant Workflow
+
+When helping with this project:
+
+1. **Always check relevant docs first** before implementing
+2. **Write all code files as artifacts** for easy copying
+3. **Reference doc sections** when explaining design decisions
+4. **Follow the POC_ROADMAP** for implementation order

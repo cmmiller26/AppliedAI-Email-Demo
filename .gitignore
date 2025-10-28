@@ -10,3 +10,5 @@ __pycache__/
 # local env
 .env
 .env.*.local
+
+.DS_Store
