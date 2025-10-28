@@ -1,0 +1,7 @@
+msal
+httpx
+python-dotenv
+openai
+fastapi
+uvicorn[standard]
+gunicorn

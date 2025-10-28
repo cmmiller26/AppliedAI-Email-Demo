@@ -1,0 +1,12 @@
+# venvs
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# local env
+.env
+.env.*.local
