@@ -10,15 +10,17 @@ import logging
 import os
 import secrets
 import time
+from typing import Optional
 from dotenv import load_dotenv
 from msal import ConfidentialClientApplication
+from graph import get_messages
 
 # Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed from INFO to DEBUG for more detailed logs
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -40,10 +42,10 @@ msal_app = ConfidentialClientApplication(
 
 # OAuth scopes requested from Microsoft Graph API
 # For Graph API calls, use short-form scopes
-SCOPES = ["Mail.Read", "Mail.ReadWrite"]
+SCOPES = ["Mail.Read", "Mail.ReadWrite", "Mail.Send"]
 # For OAuth authorization, use full URIs without offline_access
 # (offline_access is added automatically by MSAL when using ConfidentialClientApplication)
-AUTH_SCOPES = ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/Mail.ReadWrite"]
+AUTH_SCOPES = ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send"]
 
 # In-memory storage (POC only - will be replaced with database in production)
 user_tokens = {}  # {user_id: {access_token, refresh_token, expires_at}}
@@ -70,6 +72,36 @@ def cleanup_old_states(max_age_seconds: int = 3600):
 
     if expired_states:
         logger.info(f"Cleaned up {len(expired_states)} expired state tokens")
+
+
+def get_valid_token() -> Optional[str]:
+    """
+    Get valid access token for demo_user
+
+    Checks if the demo_user exists in user_tokens and verifies that
+    the token has not expired.
+
+    Returns:
+        Access token string if valid, None if user not authenticated
+        or token expired
+    """
+    # Check if demo_user has stored tokens
+    if "demo_user" not in user_tokens:
+        logger.warning("No token found for demo_user")
+        return None
+
+    token_info = user_tokens["demo_user"]
+
+    # Check if token is expired
+    expires_at = token_info.get("expires_at", 0)
+    current_time = time.time()
+
+    if current_time > expires_at:
+        logger.warning(f"Token expired for demo_user (expired at {datetime.fromtimestamp(expires_at).isoformat()})")
+        return None
+
+    # Token is valid
+    return token_info.get("access_token")
 
 
 @app.get("/")
@@ -302,6 +334,234 @@ async def auth_callback(
         raise HTTPException(
             status_code=500,
             detail=f"Authentication failed: {str(e)}"
+        )
+
+
+@app.get("/debug/token")
+async def debug_token():
+    """
+    Debug endpoint to check token info (for development only)
+    """
+    if "demo_user" not in user_tokens:
+        return {"error": "No token found"}
+
+    token_info = user_tokens["demo_user"]
+
+    # Decode the access token to see claims (base64 decode middle part)
+    import base64
+    import json
+
+    try:
+        access_token = token_info.get("access_token", "")
+        # JWT tokens have 3 parts: header.payload.signature
+        parts = access_token.split(".")
+        if len(parts) >= 2:
+            # Decode payload (add padding if needed)
+            payload = parts[1]
+            payload += "=" * (4 - len(payload) % 4)  # Add padding
+            decoded = base64.urlsafe_b64decode(payload)
+            claims = json.loads(decoded)
+
+            return {
+                "access_token": access_token,  # Include actual token for test script
+                "expires_at": datetime.fromtimestamp(token_info.get("expires_at", 0)).isoformat(),
+                "token_expired": time.time() > token_info.get("expires_at", 0),
+                "scopes": claims.get("scp", "No scopes found"),  # Space-separated list
+                "audience": claims.get("aud"),
+                "issuer": claims.get("iss")
+            }
+    except Exception as e:
+        return {"error": f"Could not decode token: {str(e)}"}
+
+
+@app.get("/debug/test-graph")
+async def test_graph():
+    """
+    Test Microsoft Graph API with /me endpoint to verify token works
+    """
+    import httpx
+
+    if "demo_user" not in user_tokens:
+        return {"error": "No token found"}
+
+    access_token = get_valid_token()
+    if not access_token:
+        return {"error": "Token expired"}
+
+    # Try calling /me endpoint which requires minimal permissions
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    results = {}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Test 1: /me endpoint
+            response_me = await client.get(
+                "https://graph.microsoft.com/v1.0/me",
+                headers=headers
+            )
+            results["me"] = {
+                "status": response_me.status_code,
+                "success": response_me.status_code == 200
+            }
+
+            # Test 2: /me/mailFolders endpoint
+            response_folders = await client.get(
+                "https://graph.microsoft.com/v1.0/me/mailFolders",
+                headers=headers
+            )
+            results["mailFolders"] = {
+                "status": response_folders.status_code,
+                "success": response_folders.status_code == 200,
+                "response": response_folders.json() if response_folders.status_code == 200 else response_folders.text
+            }
+
+            # Test 3: /me/messages endpoint with minimal params
+            response_messages = await client.get(
+                "https://graph.microsoft.com/v1.0/me/messages?$top=1",
+                headers=headers
+            )
+            results["messages_simple"] = {
+                "status": response_messages.status_code,
+                "success": response_messages.status_code == 200,
+                "response": response_messages.json() if response_messages.status_code == 200 else response_messages.text
+            }
+
+            # Test 4: Try Outlook REST API (for personal accounts)
+            # Personal Microsoft accounts often need outlook.office.com instead of graph.microsoft.com
+            outlook_headers = headers.copy()
+            response_outlook = await client.get(
+                "https://outlook.office.com/api/v2.0/me/messages?$top=1",
+                headers=outlook_headers
+            )
+            results["outlook_api"] = {
+                "status": response_outlook.status_code,
+                "success": response_outlook.status_code == 200,
+                "response": response_outlook.json() if response_outlook.status_code == 200 else response_outlook.text
+            }
+
+            return results
+
+    except Exception as e:
+        return {"error": str(e), "results": results}
+
+
+@app.get("/graph/fetch")
+async def graph_fetch(
+    top: int = Query(10, ge=1, le=50, description="Number of emails to fetch (1-50)"),
+    skip: int = Query(0, ge=0, description="Pagination offset"),
+    folder: str = Query("inbox", description="Folder to read from: inbox, drafts, or sentitems")
+):
+    """
+    Fetch emails from Microsoft Graph API
+
+    Retrieves email messages from the specified folder using
+    Microsoft Graph API. Requires valid authentication token from prior
+    OAuth login flow.
+
+    Args:
+        top: Number of emails to fetch (1-50, default=10)
+        skip: Pagination offset (default=0)
+        folder: Folder to read from - "inbox" (default), "drafts", or "sentitems"
+
+    Returns:
+        JSON response with messages array, count, and pagination info
+
+    Error Responses:
+        401 Unauthorized: No valid token (user must authenticate)
+        403 Forbidden: Personal account detected (organizational account required)
+        500 Internal Server Error: Graph API or network failure
+    """
+    try:
+        logger.info(f"Fetching emails from Graph API (folder={folder}, top={top}, skip={skip})")
+
+        # Validate and get access token
+        access_token = get_valid_token()
+
+        if not access_token:
+            logger.warning("Graph fetch attempted without valid authentication")
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated. Please visit /auth/login to authenticate with Microsoft."
+            )
+
+        # Check if this is a personal account (which has limited Graph API access)
+        token_info = user_tokens.get("demo_user", {})
+        if token_info:
+            import base64
+            import json
+            try:
+                parts = access_token.split(".")
+                if len(parts) >= 2:
+                    payload = parts[1]
+                    payload += "=" * (4 - len(payload) % 4)
+                    decoded = base64.urlsafe_b64decode(payload)
+                    claims = json.loads(decoded)
+
+                    # Check for personal account indicators
+                    idp = claims.get("idp", "")
+                    tenant_id = claims.get("tid", "")
+
+                    # Consumer tenant ID for personal Microsoft accounts
+                    CONSUMER_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
+
+                    if idp == "live.com" or tenant_id == CONSUMER_TENANT:
+                        logger.warning("Personal Microsoft account detected - Graph API mail access not supported")
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Personal Microsoft accounts (outlook.com, hotmail.com) are not supported. "
+                                   "Please use an organizational account (e.g., @uiowa.edu) or sign up for a "
+                                   "free Microsoft 365 Developer account at https://developer.microsoft.com/microsoft-365/dev-program"
+                        )
+            except Exception as e:
+                logger.debug(f"Could not check account type: {e}")
+
+        # Call Graph API helper function
+        try:
+            result = await get_messages(
+                access_token=access_token,
+                top=top,
+                skip=skip,
+                folder=folder
+            )
+
+            logger.info(f"Successfully fetched {result['count']} messages from Graph API")
+
+            # Return response matching API specification
+            return JSONResponse(
+                status_code=200,
+                content=result
+            )
+
+        except Exception as graph_error:
+            # Check if it's a 401 authentication error from Graph API
+            if hasattr(graph_error, 'response') and hasattr(graph_error.response, 'status_code'):
+                if graph_error.response.status_code == 401:
+                    logger.error("Graph API rejected token - token may be expired or invalid")
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Access token expired or invalid. Please visit /auth/login to re-authenticate."
+                    )
+
+            # Other Graph API or network errors
+            logger.error(f"Error fetching messages from Graph API: {str(graph_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch emails from Microsoft Graph: {str(graph_error)}"
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already logged and formatted)
+        raise
+    except Exception as e:
+        # Catch any unexpected errors
+        logger.error(f"Unexpected error in /graph/fetch: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
         )
 
 
