@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines how emails are classified using OpenAI's GPT models. The system uses preset categories for the POC with an extensible design for future user-defined categories.
+This document defines how emails are classified using Azure OpenAI Service with GPT models. The system uses preset categories for the POC with an extensible design for future user-defined categories.
 
 ---
 
@@ -100,20 +100,21 @@ This document defines how emails are classified using OpenAI's GPT models. The s
 
 ---
 
-## OpenAI Configuration
+## Azure OpenAI Configuration
 
 ### Model Selection
 ```python
-MODEL = "gpt-4o-mini"  # Cost-effective, fast, good accuracy
-# Alternative: "gpt-4o" for higher accuracy (more expensive)
+# Using Azure OpenAI Service deployment
+DEPLOYMENT_NAME = "gpt-4o-mini"  # Cost-effective, fast, good accuracy
+# Alternative: Deploy "gpt-4o" for higher accuracy (more expensive)
 ```
 
 ### Parameters
 ```python
 {
-    "model": "gpt-4o-mini",
+    "model": "gpt-4o-mini",  # Deployment name in Azure OpenAI
     "temperature": 0.3,      # Low temperature for consistent results
-    "max_tokens": 200,        # Enough for JSON response
+    "max_tokens": 200,       # Enough for JSON response
     "response_format": {"type": "json_object"}  # Force JSON output
 }
 ```
@@ -182,11 +183,11 @@ def classify_email(
     body: str,
     from_address: str,
     categories: list[str] = None,  # Future: user-defined categories
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini"     # Azure OpenAI deployment name
 ) -> dict:
     """
-    Classifies an email using OpenAI.
-    
+    Classifies an email using Azure OpenAI Service.
+
     Returns:
         {
             "category": str,
@@ -198,7 +199,7 @@ def classify_email(
 
 ### Error Handling
 ```python
-# If OpenAI API fails
+# If Azure OpenAI Service fails
 {
     "category": "OTHER",
     "confidence": 0.0,
@@ -229,9 +230,11 @@ FALLBACK_KEYWORDS = {
 
 ## Cost Estimation (POC)
 
-### OpenAI Pricing (gpt-4o-mini)
+### Azure OpenAI Pricing (gpt-4o-mini)
+- Hosted on Azure OpenAI Service
 - Input: $0.15 / 1M tokens
 - Output: $0.60 / 1M tokens
+- May be covered by university Azure credits
 
 ### Per Email Cost
 - Average email: ~300 tokens input, ~50 tokens output

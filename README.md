@@ -1,13 +1,13 @@
 # Email Classification POC
 
-Automated email classification system using Microsoft Graph API and OpenAI, built with FastAPI.
+Automated email classification system using Microsoft Graph API and Azure OpenAI Service, built with FastAPI.
 
 ## Overview
 
 This proof-of-concept demonstrates:
 - **OAuth Authentication** with Microsoft Entra ID
 - **Email Fetching** via Microsoft Graph API
-- **AI Classification** using OpenAI GPT-4o-mini
+- **AI Classification** using Azure OpenAI Service with GPT-4o-mini
 - **FastAPI Web Application** hosted on Azure App Service (planned)
 
 ## Quick Start
@@ -37,7 +37,10 @@ cp .env.example .env
 # - CLIENT_ID (Azure Entra app ID)
 # - CLIENT_SECRET (Azure app secret)
 # - TENANT_ID (Azure tenant ID)
-# - OPENAI_API_KEY (OpenAI API key)
+# - AZURE_OPENAI_KEY (Azure OpenAI Service API key)
+# - AZURE_OPENAI_ENDPOINT (Azure OpenAI endpoint URL)
+# - AZURE_OPENAI_DEPLOYMENT (Deployment name: gpt-4o-mini)
+# - AZURE_OPENAI_API_VERSION (API version: 2024-02-15-preview)
 ```
 
 ### 3. Run the Application
@@ -81,15 +84,16 @@ curl http://localhost:8000/graph/fetch?top=10
 │  └────────┘  └────────┘│
 │                         │
 │  ┌────────────────────┐│
-│  │  OpenAI Classifier ││
+│  │ Azure OpenAI       ││
+│  │   Classifier       ││
 │  └────────────────────┘│
 └────────┬────────────┬───┘
          │            │
          ▼            ▼
-┌──────────────┐  ┌──────────┐
-│ Microsoft    │  │ OpenAI   │
-│ Graph API    │  │ API      │
-└──────────────┘  └──────────┘
+┌──────────────┐  ┌──────────────┐
+│ Microsoft    │  │ Azure OpenAI │
+│ Graph API    │  │   Service    │
+└──────────────┘  └──────────────┘
 ```
 
 ## API Endpoints
@@ -160,7 +164,7 @@ curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 | **ASGI Server** | Uvicorn + Gunicorn |
 | **Authentication** | MSAL (Microsoft Authentication Library) |
 | **HTTP Client** | httpx |
-| **AI/ML** | OpenAI API (GPT-4o-mini) |
+| **AI/ML** | Azure OpenAI Service (GPT-4o-mini) |
 | **Deployment** | Azure App Service (planned) |
 
 ## Environment Variables
@@ -170,7 +174,10 @@ curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 | `CLIENT_ID` | Azure Entra app client ID | `edd9d097-4e9f-...` |
 | `TENANT_ID` | Azure tenant ID | `d2ecbd81-bc7c-...` |
 | `CLIENT_SECRET` | Azure app secret | `secret123...` |
-| `OPENAI_API_KEY` | OpenAI API key | `sk-proj-...` |
+| `AZURE_OPENAI_KEY` | Azure OpenAI Service API key | `abc123...` |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://appliedai-openai.openai.azure.com/` |
+| `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name | `gpt-4o-mini` |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version | `2024-02-15-preview` |
 | `REDIRECT_URI` | OAuth redirect URI | `http://localhost:8000/auth/callback` |
 
 ## Project Structure
@@ -179,7 +186,7 @@ curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 appliedai-demo/
 ├── app.py                  # Main FastAPI application
 ├── graph.py                # Microsoft Graph API integration
-├── classifier.py           # OpenAI classification logic (planned)
+├── classifier.py           # Azure OpenAI classification logic
 ├── requirements.txt        # Python dependencies
 ├── .env                    # Environment variables (not in git)
 ├── docs/                   # Documentation
@@ -200,11 +207,11 @@ appliedai-demo/
 - OAuth authentication flow
 - Microsoft Graph API integration
 - Email fetching from inbox/drafts/sentitems
+- Azure OpenAI Service classification endpoint
 - Test email generation script
 - Folder-based email reading (drafts for testing)
 
 🚧 In Progress:
-- OpenAI classification endpoint
 - Automated batch processing
 - Web dashboard UI
 

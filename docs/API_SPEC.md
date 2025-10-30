@@ -104,7 +104,7 @@ Fetches emails from Microsoft Graph API using stored access token.
 
 **POST** `/classify`
 
-Classifies a single email using OpenAI.
+Classifies a single email using Azure OpenAI Service.
 
 **Request Body:**
 ```json
@@ -131,7 +131,7 @@ Classifies a single email using OpenAI.
 
 **Error Responses:**
 - `400 Bad Request` - Missing required fields
-- `500 Internal Server Error` - OpenAI API failure
+- `500 Internal Server Error` - Azure OpenAI Service failure
 
 ---
 
@@ -249,7 +249,7 @@ Simple HTML dashboard showing classification results.
 ## Rate Limiting (Future)
 
 Not implemented in POC. Future considerations:
-- OpenAI: ~60 requests/minute
+- Azure OpenAI: Varies by deployment tier and quota
 - Graph API: Varies by license
 - Implement retry with exponential backoff
 

@@ -6,12 +6,12 @@ Build a secure, policy-compliant email automation service:
 
 - Authenticate via Microsoft Entra ID (OAuth), never HawkID passwords
 - Read mail via Microsoft Graph
-- Classify messages with OpenAI
+- Classify messages with Azure OpenAI
 - Host on Azure App Service (Python 3.12, Linux), later enabling webhook or polling behavior
 
 ## Non-Negotiables
 
-- Never commit secrets (`CLIENT_SECRET`, `OPENAI_API_KEY`)
+- Never commit secrets (`CLIENT_SECRET`, `AZURE_OPENAI_KEY`)
 - Use OAuth flows only (Device Code for local testing, Auth Code for web deployment)
 - Ensure endpoints are idempotent; do not reprocess the same `internetMessageId`
 
@@ -22,7 +22,7 @@ Build a secure, policy-compliant email automation service:
 | Document | Purpose | When to Reference |
 |----------|---------|-------------------|
 | `docs/API_SPEC.md` | Endpoint definitions, request/response formats | Implementing any endpoint |
-| `docs/CLASSIFICATION_SPEC.md` | AI categories, prompts, OpenAI configuration | Building classifier logic |
+| `docs/CLASSIFICATION_SPEC.md` | AI categories, prompts, Azure OpenAI configuration | Building classifier logic |
 | `docs/ARCHITECTURE.md` | System design, flow diagrams, data models | Understanding component interactions |
 | `docs/TESTING.md` | Testing workflow, test email script usage | Testing classification system |
 | `docs/POC_ROADMAP.md` | Development plan and task breakdown | Planning daily work |
@@ -33,7 +33,7 @@ Build a secure, policy-compliant email automation service:
 - **Framework**: FastAPI + Uvicorn + Gunicorn
 - **Auth**: MSAL for Python (`PublicClientApplication` for local, `ConfidentialClientApplication` for web)
 - **HTTP Client**: httpx for Graph API calls
-- **AI**: OpenAI API (gpt-4o-mini)
+- **AI**: Azure OpenAI Service (gpt-4o-mini)
 - **Scheduling** (Optional): APScheduler for polling
 
 ## Environment Variables
@@ -43,7 +43,10 @@ Build a secure, policy-compliant email automation service:
 | `CLIENT_ID` | Azure Entra app client ID |
 | `TENANT_ID` | Azure tenant ID |
 | `CLIENT_SECRET` | Azure app secret (only for web Auth Code flow) |
-| `OPENAI_API_KEY` | OpenAI API key |
+| `AZURE_OPENAI_KEY` | Azure OpenAI Service API key |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL (e.g., https://appliedai-openai.openai.azure.com/) |
+| `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name (gpt-4o-mini) |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version (2024-02-15-preview) |
 | `REDIRECT_URI` | OAuth redirect URI — local: `http://localhost:8000/auth/callback`, prod: `https://appliedai-api.azurewebsites.net/auth/callback` |
 
 ## Testing Account

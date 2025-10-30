@@ -1,6 +1,6 @@
 # Email Classification Testing Guide
 
-Complete guide for testing the email classification system using test emails in your Inbox.
+Complete guide for testing the email classification system using Azure OpenAI Service with test emails in your Inbox.
 
 ---
 

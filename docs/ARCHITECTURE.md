@@ -20,7 +20,7 @@
 │                                     │
 │  ┌────────────┐  ┌──────────────┐   │
 │  │   Graph    │  │ Classifier   │   │
-│  │    API     │  │   (OpenAI)   │   │
+│  │    API     │  │  (Azure AI)  │   │
 │  └────────────┘  └──────────────┘   │
 │                                     │
 │  ┌────────────────────────────────┐ │
@@ -33,11 +33,11 @@
        │                     │
        │                     │
        ▼                     ▼
-┌──────────────┐      ┌────────────┐
-│  Microsoft   │      │  OpenAI    │
-│  Graph API   │      │    API     │
-│ (Entra ID)   │      │ (GPT-4o)   │
-└──────────────┘      └────────────┘
+┌──────────────┐      ┌──────────────┐
+│  Microsoft   │      │ Azure OpenAI │
+│  Graph API   │      │   Service    │
+│ (Entra ID)   │      │  (GPT-4o)    │
+└──────────────┘      └──────────────┘
 ```
 
 ---
@@ -55,7 +55,7 @@
 **Key Modules:**
 - `app.py` - Main application entry point
 - `graph.py` - Microsoft Graph API integration
-- `classifier.py` - OpenAI classification logic
+- `classifier.py` - Azure OpenAI classification logic
 - `templates/` - HTML templates for dashboard
 
 **Dependencies:**
@@ -220,10 +220,18 @@ FastAPI         Classifier Module      OpenAI API       Response
    ├──────────────────────────────────────────────────────►│
 ```
 
-**OpenAI Request:**
+**Azure OpenAI Request:**
 ```python
-response = openai.chat.completions.create(
-    model="gpt-4o-mini",
+from openai import AzureOpenAI
+
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+)
+
+response = client.chat.completions.create(
+    model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),  # e.g., "gpt-4o-mini"
     temperature=0.3,
     max_tokens=200,
     response_format={"type": "json_object"},
@@ -392,7 +400,7 @@ last_check_time = None        # Timestamp of last email fetch
    - Retry with exponential backoff
    - Return friendly error message
 
-3. **OpenAI API Errors** (429, 500)
+3. **Azure OpenAI Service Errors** (429, 500)
    - Fallback to rule-based classification
    - Return low confidence result
 
@@ -430,7 +438,10 @@ logger.error(f"Graph API error: {error}")
 │  │    App Settings (Secrets)         │  │
 │  │    - CLIENT_ID                    │  │
 │  │    - CLIENT_SECRET                │  │
-│  │    - OPENAI_API_KEY               │  │
+│  │    - AZURE_OPENAI_KEY             │  │
+│  │    - AZURE_OPENAI_ENDPOINT        │  │
+│  │    - AZURE_OPENAI_DEPLOYMENT      │  │
+│  │    - AZURE_OPENAI_API_VERSION     │  │
 │  └───────────────────────────────────┘  │
 └─────────────────────────────────────────┘
            │
@@ -452,7 +463,7 @@ logger.error(f"Graph API error: {error}")
 | **ASGI Server** | Uvicorn + Gunicorn | Production server |
 | **Authentication** | MSAL Python | OAuth 2.0 flows |
 | **HTTP Client** | httpx | Graph API calls |
-| **AI/ML** | OpenAI API | Email classification |
+| **AI/ML** | Azure OpenAI Service | Email classification with GPT-4o-mini |
 | **Templates** | Jinja2 | HTML rendering |
 | **Configuration** | python-dotenv | Environment variables |
 | **Hosting** | Azure App Service | Cloud deployment (future) |
@@ -484,7 +495,7 @@ logger.error(f"Graph API error: {error}")
 |--------|--------|-------|
 | Auth flow latency | <3s | Microsoft sign-in |
 | Email fetch | <1s | 10 emails |
-| Single classification | <2s | OpenAI API call |
+| Single classification | <2s | Azure OpenAI Service call |
 | Batch processing (100 emails) | <3min | Sequential, no parallelization |
 | Dashboard load | <1s | With cached results |
 
@@ -531,8 +542,8 @@ User → Login URL → Microsoft Sign-In → Callback with code → Exchange for
 **Microsoft Graph API:**
 RESTful API for accessing Microsoft 365 data (emails, calendar, etc.)
 
-**OpenAI Classification:**
-Few-shot learning with GPT-4o-mini to categorize emails based on content
+**Azure OpenAI Classification:**
+Few-shot learning with GPT-4o-mini to categorize emails based on content, hosted on Azure OpenAI Service
 
 **Idempotency:**
 Ensuring same email is not processed multiple times using `internetMessageId`
