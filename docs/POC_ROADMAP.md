@@ -15,21 +15,22 @@
 - [x] Write API_SPEC.md
 - [x] Write CLASSIFICATION_SPEC.md
 - [x] Write POC_ROADMAP.md (this file)
-- [ ] Write ARCHITECTURE.md
+- [x] Write ARCHITECTURE.md
+- [x] Write TESTING.md
 
 ### Project Setup
-- [ ] Review existing code (`test_device_flow.py`)
-- [ ] Verify all environment variables in `.env`
-- [ ] Test existing device flow authentication
-- [ ] Confirm OpenAI API key is valid
+- [x] Review existing code
+- [x] Verify all environment variables in `.env`
+- [x] Test OAuth authentication
+- [x] Confirm OpenAI API key is valid
 
 ### Initial FastAPI App
-- [ ] Create `app.py` with FastAPI initialization
-- [ ] Add `/health` endpoint
-- [ ] Test with `uvicorn app:app --reload`
-- [ ] Confirm health check returns 200 OK
+- [x] Create `app.py` with FastAPI initialization
+- [x] Add `/health` endpoint
+- [x] Test with `uvicorn app:app --reload`
+- [x] Confirm health check returns 200 OK
 
-**Estimated Time:** 2-3 hours  
+**Estimated Time:** 2-3 hours
 **Success Criteria:** `curl http://localhost:8000/health` returns `{"status": "ok"}`
 
 ---
@@ -37,36 +38,36 @@
 ## Phase 2: OAuth Authentication (Day 2-3)
 
 ### Environment Configuration
-- [ ] Add `REDIRECT_URI` to `.env` (local: `http://localhost:8000/auth/callback`)
-- [ ] Update Azure app registration redirect URIs in Entra ID portal
-- [ ] Document redirect URI changes in README
+- [x] Add `REDIRECT_URI` to `.env`
+- [x] Update Azure app registration redirect URIs in Entra ID portal
+- [x] Document redirect URI changes in README
 
 ### ConfidentialClientApplication Setup
-- [ ] Import MSAL `ConfidentialClientApplication`
-- [ ] Create auth configuration from environment variables
-- [ ] Add global dict for token storage: `user_tokens = {}`
+- [x] Import MSAL `ConfidentialClientApplication`
+- [x] Create auth configuration from environment variables
+- [x] Add global dict for token storage: `user_tokens = {}`
 
 ### /auth/login Endpoint
-- [ ] Generate auth URL with MSAL
-- [ ] Add state parameter for CSRF protection
-- [ ] Store state in session/memory
-- [ ] Return redirect response to Microsoft
+- [x] Generate auth URL with MSAL
+- [x] Add state parameter for CSRF protection
+- [x] Store state in session/memory
+- [x] Return redirect response to Microsoft
 
 ### /auth/callback Endpoint
-- [ ] Validate state parameter
-- [ ] Exchange authorization code for tokens
-- [ ] Extract `access_token`, `refresh_token`, `expires_in`
-- [ ] Store tokens in `user_tokens` dict (use dummy user_id for POC)
-- [ ] Redirect to dashboard (`/`)
+- [x] Validate state parameter
+- [x] Exchange authorization code for tokens
+- [x] Extract `access_token`, `refresh_token`, `expires_in`
+- [x] Store tokens in `user_tokens` dict (use demo_user for POC)
+- [x] Redirect to dashboard (`/`)
 
 ### Testing Authentication
-- [ ] Visit `http://localhost:8000/auth/login` in browser
-- [ ] Complete Microsoft sign-in with `appliedai.demo@outlook.com`
-- [ ] Verify redirect to callback
-- [ ] Check token stored in memory (add debug logging)
-- [ ] Handle authentication errors gracefully
+- [x] Visit `http://localhost:8000/auth/login` in browser
+- [x] Complete Microsoft sign-in
+- [x] Verify redirect to callback
+- [x] Check token stored in memory
+- [x] Handle authentication errors gracefully
 
-**Estimated Time:** 4-6 hours  
+**Estimated Time:** 4-6 hours
 **Success Criteria:** Can authenticate via browser and see stored token in logs
 
 ---
@@ -74,32 +75,37 @@
 ## Phase 3: Microsoft Graph Integration (Day 3-4)
 
 ### Graph API Helper Functions
-- [ ] Create `graph.py` module
-- [ ] Add `get_messages(access_token, top=10)` function
-- [ ] Use `httpx` to call `/me/messages` endpoint
-- [ ] Parse and format response JSON
-- [ ] Handle 401 errors (expired token)
+- [x] Create `graph.py` module
+- [x] Add `get_messages(access_token, top=10, folder)` function
+- [x] Use `httpx` to call `/me/mailFolders/{folder}/messages` endpoint
+- [x] Parse and format response JSON
+- [x] Handle 401 errors (expired token)
 
 ### /graph/fetch Endpoint
-- [ ] Accept `top` query parameter (default=10)
-- [ ] Retrieve access token from `user_tokens`
-- [ ] Call `get_messages()` helper
-- [ ] Return formatted JSON response
-- [ ] Add error handling for missing token
+- [x] Accept `top`, `skip`, `folder` query parameters
+- [x] Retrieve access token from `user_tokens`
+- [x] Call `get_messages()` helper
+- [x] Return formatted JSON response
+- [x] Add error handling for missing token
 
 ### Token Validation
-- [ ] Check token expiration before Graph API calls
-- [ ] Return 401 with redirect to `/auth/login` if expired
-- [ ] Log token usage for debugging
+- [x] Check token expiration before Graph API calls
+- [x] Return 401 with redirect to `/auth/login` if expired
+- [x] Log token usage for debugging
 
 ### Testing Graph Integration
-- [ ] Authenticate via `/auth/login`
-- [ ] Call `/graph/fetch?top=5`
-- [ ] Verify emails returned in response
-- [ ] Test with different `top` values
-- [ ] Verify error handling when not authenticated
+- [x] Authenticate via `/auth/login`
+- [x] Call `/graph/fetch?top=5`
+- [x] Verify emails returned in response
+- [x] Test with different `top` values and folders
+- [x] Verify error handling when not authenticated
 
-**Estimated Time:** 3-4 hours  
+### Testing Infrastructure
+- [x] Create test email generation script
+- [x] Add support for drafts folder (for testing with mock senders)
+- [x] Add `--save-to-drafts` and `--no-metadata` flags
+
+**Estimated Time:** 3-4 hours
 **Success Criteria:** Can fetch and display email list via API endpoint
 
 ---

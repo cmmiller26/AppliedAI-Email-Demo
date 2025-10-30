@@ -24,6 +24,7 @@ Build a secure, policy-compliant email automation service:
 | `docs/API_SPEC.md` | Endpoint definitions, request/response formats | Implementing any endpoint |
 | `docs/CLASSIFICATION_SPEC.md` | AI categories, prompts, OpenAI configuration | Building classifier logic |
 | `docs/ARCHITECTURE.md` | System design, flow diagrams, data models | Understanding component interactions |
+| `docs/TESTING.md` | Testing workflow, test email script usage | Testing classification system |
 | `docs/POC_ROADMAP.md` | Development plan and task breakdown | Planning daily work |
 | `Enterprise_Authentication...pdf` | University IT security policies | Production compliance (not POC) |
 
