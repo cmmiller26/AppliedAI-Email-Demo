@@ -13,7 +13,7 @@ import time
 from typing import Optional
 from dotenv import load_dotenv
 from msal import ConfidentialClientApplication
-from graph import get_messages
+from src.graph import get_messages
 
 # Load environment variables
 load_dotenv()
@@ -592,7 +592,7 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "app:app",
+        "src.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True,

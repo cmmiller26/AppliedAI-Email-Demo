@@ -25,9 +25,9 @@
 - [x] Confirm Azure OpenAI Service credentials are valid
 
 ### Initial FastAPI App
-- [x] Create `app.py` with FastAPI initialization
+- [x] Create `src/main.py` with FastAPI initialization
 - [x] Add `/health` endpoint
-- [x] Test with `uvicorn app:app --reload`
+- [x] Test with `uvicorn src.main:app --reload`
 - [x] Confirm health check returns 200 OK
 
 **Estimated Time:** 2-3 hours
@@ -75,7 +75,7 @@
 ## Phase 3: Microsoft Graph Integration (Day 3-4)
 
 ### Graph API Helper Functions
-- [x] Create `graph.py` module
+- [x] Create `src/graph.py` module
 - [x] Add `get_messages(access_token, top=10, folder)` function
 - [x] Use `httpx` to call `/me/mailFolders/{folder}/messages` endpoint
 - [x] Parse and format response JSON
@@ -114,7 +114,7 @@
 
 ### Azure OpenAI Setup
 - [x] Install/verify OpenAI Python SDK (with Azure support)
-- [x] Create `classifier.py` module
+- [x] Create `src/classifier.py` module (future)
 - [x] Add Azure OpenAI client initialization
 - [x] Define preset categories list
 

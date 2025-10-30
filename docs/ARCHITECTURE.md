@@ -44,7 +44,7 @@
 
 ## Component Details
 
-### 1. FastAPI Application (`app.py`)
+### 1. FastAPI Application (`src/main.py`)
 
 **Responsibilities:**
 - HTTP request handling
@@ -53,10 +53,10 @@
 - Error handling and logging
 
 **Key Modules:**
-- `app.py` - Main application entry point
-- `graph.py` - Microsoft Graph API integration
-- `classifier.py` - Azure OpenAI classification logic
-- `templates/` - HTML templates for dashboard
+- `src/main.py` - Main application entry point
+- `src/graph.py` - Microsoft Graph API integration
+- `src/classifier.py` - Azure OpenAI classification logic (future)
+- `templates/` - HTML templates for dashboard (future)
 
 **Dependencies:**
 - `fastapi` - Web framework

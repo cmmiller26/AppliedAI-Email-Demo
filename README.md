@@ -47,7 +47,7 @@ cp .env.example .env
 
 ```bash
 # Start the FastAPI server
-python -m uvicorn app:app --reload
+python -m uvicorn src.main:app --reload
 
 # Open in browser
 open http://localhost:8000
@@ -184,9 +184,11 @@ curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 
 ```
 appliedai-demo/
-├── app.py                  # Main FastAPI application
-├── graph.py                # Microsoft Graph API integration
-├── classifier.py           # Azure OpenAI classification logic
+├── src/                    # Source code
+│   ├── __init__.py
+│   ├── main.py             # Main FastAPI application
+│   ├── graph.py            # Microsoft Graph API integration
+│   └── classifier.py       # Azure OpenAI classification logic (future)
 ├── requirements.txt        # Python dependencies
 ├── .env                    # Environment variables (not in git)
 ├── docs/                   # Documentation
@@ -196,6 +198,7 @@ appliedai-demo/
 │   ├── TESTING.md
 │   └── POC_ROADMAP.md
 └── tests/                  # Test utilities
+    ├── __init__.py
     ├── send_test_emails.py
     └── data/
         └── test_emails.md
