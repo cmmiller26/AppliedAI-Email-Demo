@@ -5,15 +5,17 @@ Main application entry point
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 import logging
 import os
 import secrets
 import time
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 from msal import ConfidentialClientApplication
 from src.graph import get_messages
+from src.classifier import classify_email, PRESET_CATEGORIES
 
 # Load environment variables
 load_dotenv()
@@ -52,6 +54,63 @@ user_tokens = {}  # {user_id: {access_token, refresh_token, expires_at}}
 processed_emails = {}  # {internet_message_id: {category, timestamp, confidence}}
 last_check_time = None  # Timestamp of last email fetch
 auth_state_store = {}  # {state: timestamp} - CSRF protection for OAuth flow
+
+
+# Pydantic models for request/response validation
+class ClassifyRequest(BaseModel):
+    """Request body for /classify endpoint"""
+    subject: str = Field(..., description="Email subject line", min_length=1)
+    body: str = Field(..., description="Email body content", min_length=1)
+    from_address: str = Field(..., alias="from", description="Sender email address", min_length=1)
+    categories: Optional[List[str]] = Field(
+        None,
+        description="Optional list of categories to use (defaults to preset categories)"
+    )
+
+    class Config:
+        populate_by_name = True  # Allow both 'from' and 'from_address'
+        json_schema_extra = {
+            "example": {
+                "subject": "CS 4980 Assignment Due Friday",
+                "body": "Your programming assignment is due this Friday at 11:59 PM...",
+                "from": "john-smith@uiowa.edu",
+                "categories": ["URGENT", "ACADEMIC", "ADMINISTRATIVE", "SOCIAL", "PROMOTIONAL", "OTHER"]
+            }
+        }
+
+
+class ClassifyResponse(BaseModel):
+    """Response body for /classify endpoint"""
+    category: str = Field(..., description="Classified category")
+    confidence: float = Field(..., description="Confidence score (0.0 to 1.0)", ge=0.0, le=1.0)
+    reasoning: str = Field(..., description="Brief explanation of classification")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "category": "ACADEMIC",
+                "confidence": 0.92,
+                "reasoning": "Email from professor about assignment deadline"
+            }
+        }
+
+
+class ErrorResponse(BaseModel):
+    """Standard error response format"""
+    error: str = Field(..., description="Error type or code")
+    message: str = Field(..., description="Human-readable error message")
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+    path: str = Field(..., description="Request path that caused the error")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "error": "ValidationError",
+                "message": "Missing required field: subject",
+                "timestamp": "2025-10-31T12:00:00Z",
+                "path": "/classify"
+            }
+        }
 
 
 def cleanup_old_states(max_age_seconds: int = 3600):
@@ -128,9 +187,9 @@ async def root():
                 "token_expired": is_expired,
                 "has_refresh_token": token_info.get("refresh_token") is not None,
                 "next_steps": [
-                    "Use /graph/fetch to fetch emails",
-                    "Use /classify to classify an email",
-                    "Use /inbox/process-new to process new emails"
+                    "Use GET /graph/fetch to fetch emails from inbox",
+                    "Use POST /classify to classify an email with Azure OpenAI",
+                    "Use GET /inbox/process-new to process new emails"
                 ]
             }
         )
@@ -562,6 +621,88 @@ async def graph_fetch(
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
+        )
+
+
+@app.post("/classify", response_model=ClassifyResponse)
+async def classify(request: ClassifyRequest):
+    """
+    Classify an email using Azure OpenAI Service
+
+    Analyzes email content (subject, body, sender) and categorizes it into one of
+    the preset categories: URGENT, ACADEMIC, ADMINISTRATIVE, SOCIAL, PROMOTIONAL, or OTHER.
+
+    Args:
+        request: ClassifyRequest with subject, body, from_address, and optional categories
+
+    Returns:
+        ClassifyResponse with category, confidence score (0.0-1.0), and reasoning
+
+    Error Responses:
+        400 Bad Request: Missing or invalid required fields (subject, body, from)
+        500 Internal Server Error: Azure OpenAI Service failure or classification error
+    """
+    try:
+        logger.info(f"Classification requested for email: '{request.subject[:50]}...'")
+
+        # Validate categories if provided
+        if request.categories:
+            invalid_categories = [cat for cat in request.categories if cat not in PRESET_CATEGORIES]
+            if invalid_categories:
+                logger.warning(f"Invalid categories provided: {invalid_categories}")
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "ValidationError",
+                        "message": f"Invalid categories: {invalid_categories}. Valid categories are: {PRESET_CATEGORIES}",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "path": "/classify"
+                    }
+                )
+
+        # Call classifier function
+        result = classify_email(
+            subject=request.subject,
+            body=request.body,
+            from_address=request.from_address
+        )
+
+        # Check if classification failed (confidence 0.0 usually indicates error)
+        if result.get("confidence", 0.0) == 0.0 and "failed" in result.get("reasoning", "").lower():
+            logger.error(f"Classification failed: {result.get('reasoning')}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "ClassificationError",
+                    "message": f"Classification failed: {result.get('reasoning', 'Unknown error')}",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "path": "/classify"
+                }
+            )
+
+        logger.info(f"Email classified as '{result['category']}' with confidence {result['confidence']:.2f}")
+
+        # Return successful classification
+        return ClassifyResponse(
+            category=result["category"],
+            confidence=result["confidence"],
+            reasoning=result["reasoning"]
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already logged and formatted)
+        raise
+    except Exception as e:
+        # Catch any unexpected errors
+        logger.error(f"Unexpected error in /classify: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "InternalServerError",
+                "message": f"Classification failed: {str(e)}",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "path": "/classify"
+            }
         )
 
 
