@@ -52,8 +52,17 @@ python tests/send_test_emails.py --token "$TOKEN"
 # Fetch emails from Inbox
 curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 
-# Classify the emails (when classification endpoint is implemented)
-curl -X POST "http://localhost:8000/classify/batch"
+# Classify a single email
+curl -X POST "http://localhost:8000/classify" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "CS 4980 Assignment Due Tonight",
+    "body": "Your homework is due at 11:59 PM",
+    "from": "professor@uiowa.edu"
+  }'
+
+# Batch process all new emails with automatic category assignment
+curl -X POST "http://localhost:8000/inbox/process-new"
 ```
 
 ---
@@ -248,10 +257,131 @@ curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 
 Notice the `from` field shows the **mock sender**, not the authenticated user!
 
-#### Step 3: Test Classification
+#### Step 3: Test Batch Processing (Automated Classification)
 
 ```bash
-# Classify individual email
+# Process all new emails (first run)
+curl -X POST "http://localhost:8000/inbox/process-new" | python -m json.tool
+```
+
+**Expected Output:**
+```json
+{
+  "processed": 18,
+  "lastCheck": null,
+  "newCheck": "2025-10-31T12:00:00Z",
+  "categories": {
+    "URGENT": 3,
+    "ACADEMIC": 3,
+    "ADMINISTRATIVE": 3,
+    "SOCIAL": 3,
+    "PROMOTIONAL": 3,
+    "OTHER": 3
+  },
+  "emails": [
+    {
+      "id": "AAMkAGI...",
+      "subject": "CS 4980 Assignment Due Tonight at 11:59 PM",
+      "category": "URGENT",
+      "confidence": 0.95,
+      "receivedDateTime": "2025-10-31T10:30:00Z"
+    }
+    // ... 17 more emails
+  ]
+}
+```
+
+#### Step 4: Verify Idempotency (Should Process 0 Emails)
+
+```bash
+# Run again immediately
+curl -X POST "http://localhost:8000/inbox/process-new" | python -m json.tool
+```
+
+**Expected Output:**
+```json
+{
+  "processed": 0,
+  "lastCheck": "2025-10-31T12:00:00Z",
+  "newCheck": "2025-10-31T12:01:00Z",
+  "categories": {},
+  "emails": []
+}
+```
+
+✅ **This confirms idempotency - no duplicate processing!**
+
+#### Step 5: Check Processed Emails
+
+```bash
+# View all processed emails
+curl "http://localhost:8000/debug/processed" | python -m json.tool
+```
+
+**Expected Output:**
+```json
+{
+  "count": 18,
+  "last_check_time": "2025-10-31T12:01:00Z",
+  "emails": [
+    {
+      "internet_message_id": "<CAB123@mail.gmail.com>",
+      "subject": "CS 4980 Assignment Due Tonight at 11:59 PM",
+      "from": "john-smith@uiowa.edu",
+      "category": "URGENT",
+      "confidence": 0.95,
+      "processed_at": "2025-10-31T12:00:15Z"
+    }
+    // ... 17 more emails
+  ]
+}
+```
+
+#### Step 6: Verify Outlook Categories
+
+```bash
+# Open Outlook to see colored category labels
+open https://outlook.com  # or https://outlook.office.com
+```
+
+Emails should now have colored category labels in Outlook!
+
+#### Step 7: Test with New Email
+
+Send yourself a new test email, then:
+
+```bash
+# Wait ~30 seconds for delivery
+
+# Process new emails (should process 1)
+curl -X POST "http://localhost:8000/inbox/process-new" | python -m json.tool
+```
+
+**Expected Output:**
+```json
+{
+  "processed": 1,
+  "lastCheck": "2025-10-31T12:01:00Z",
+  "newCheck": "2025-10-31T12:05:00Z",
+  "categories": {
+    "SOCIAL": 1
+  },
+  "emails": [
+    {
+      "id": "AAMkAGI...",
+      "subject": "Applied AI Meeting Tomorrow",
+      "category": "SOCIAL",
+      "confidence": 0.91,
+      "receivedDateTime": "2025-10-31T12:04:00Z"
+    }
+  ]
+}
+```
+
+#### Step 8: Single Email Classification (Optional)
+
+```bash
+# Classify individual email without batch processing
 curl -X POST "http://localhost:8000/classify" \
   -H "Content-Type: application/json" \
   -d '{
@@ -259,16 +389,6 @@ curl -X POST "http://localhost:8000/classify" \
     "body": "This is a reminder that your machine learning assignment is due tonight...",
     "from": "john-smith@uiowa.edu"
   }'
-
-# Batch classify all inbox emails (when implemented)
-curl -X POST "http://localhost:8000/classify/batch"
-```
-
-#### Step 4: Verify Results
-
-```bash
-# Check processed emails
-curl "http://localhost:8000/debug/processed"
 ```
 
 ### Iterative Testing
@@ -308,8 +428,14 @@ python tests/send_test_emails.py --token "$TOKEN" --categories "URGENT"
 # Fetch and verify from Inbox
 curl "http://localhost:8000/graph/fetch?folder=inbox&top=20"
 
-# Classify emails (when implemented)
-curl -X POST "http://localhost:8000/classify/batch"
+# Batch process new emails (automatic classification + category assignment)
+curl -X POST "http://localhost:8000/inbox/process-new"
+
+# View processed emails
+curl "http://localhost:8000/debug/processed"
+
+# Check Outlook for categories
+open https://outlook.com
 ```
 
 ### Graph API Folder Options

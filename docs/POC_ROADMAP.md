@@ -151,37 +151,52 @@
 
 ---
 
-## Phase 5: Automated Processing (Day 5-6)
+## Phase 5: Automated Processing (Day 5-6) ✅ COMPLETED 2025-10-31
 
 ### Storage Layer (In-Memory)
-- [ ] Create `processed_emails` dict: `{message_id: {category, timestamp, confidence}}`
-- [ ] Add `last_check_time` global variable
-- [ ] Add helper functions: `mark_processed()`, `is_processed()`
+- [x] Create `processed_emails` dict: `{message_id: {category, timestamp, confidence, subject, from}}`
+- [x] Add `last_check_time` global variable
+- [x] Add helper functions: `mark_processed()`, `is_processed()`, `get_processed_emails()`
 
 ### /inbox/process-new Endpoint
-- [ ] Fetch emails newer than `last_check_time`
-- [ ] Filter out already processed emails (by `internetMessageId`)
-- [ ] Loop through unprocessed emails
-- [ ] Classify each email
-- [ ] Store results in `processed_emails`
-- [ ] Update `last_check_time`
-- [ ] Return summary statistics
+- [x] Fetch emails newer than `last_check_time` (or all on first run)
+- [x] Filter out already processed emails (by `internetMessageId`)
+- [x] Loop through unprocessed emails
+- [x] Classify each email using Azure OpenAI
+- [x] **Assign Outlook category to each email**
+- [x] Store results in `processed_emails`
+- [x] Update `last_check_time`
+- [x] Return summary statistics with category distribution
 
 ### Idempotency
-- [ ] Ensure same email isn't processed twice
-- [ ] Use `internetMessageId` as unique identifier
-- [ ] Add deduplication logic
+- [x] Ensure same email isn't processed twice
+- [x] Use `internetMessageId` as unique identifier
+- [x] Add deduplication logic
+- [x] Safe to call multiple times
+
+### Outlook Category Assignment (Bonus!)
+- [x] Implement `assign_category_to_message()` in graph.py
+- [x] GET current categories, add new one, PATCH email
+- [x] Handle errors gracefully (continue on failure)
+- [x] Categories appear as colored labels in Outlook
+
+### Debug Endpoint
+- [x] Add `/debug/processed` to view all processed emails
+- [x] Returns count, last_check_time, and full email list
 
 ### Testing Automated Processing
-- [ ] Authenticate and fetch initial emails
-- [ ] Call `/inbox/process-new` - should process all
-- [ ] Call again immediately - should process 0 (all already processed)
-- [ ] Send yourself a new test email
-- [ ] Call `/inbox/process-new` - should process 1
-- [ ] Verify stats are accurate
+- [x] Authenticate and fetch initial emails
+- [x] Call `/inbox/process-new` - should process all
+- [x] Call again immediately - should process 0 (all already processed)
+- [x] Send yourself a new test email
+- [x] Call `/inbox/process-new` - should process 1
+- [x] Verify stats are accurate
+- [x] Check Outlook for colored category labels
 
-**Estimated Time:** 3-4 hours  
-**Success Criteria:** Can automatically process new emails without duplicates
+**Estimated Time:** 3-4 hours
+**Actual Time:** ~4 hours
+**Success Criteria:** ✅ Can automatically process new emails without duplicates
+**Bonus:** ✅ Emails automatically tagged with Outlook categories!
 
 ---
 
@@ -250,6 +265,88 @@
 
 ---
 
+## Phase 7: Performance Optimization (Future)
+
+### Parallel Processing
+- [ ] Implement asyncio-based parallel processing
+- [ ] Add semaphore for rate limit control (5-10 workers)
+- [ ] Use `asyncio.gather()` for concurrent classification
+- [ ] Handle partial failures gracefully
+- [ ] Add retry logic with exponential backoff
+
+### Azure OpenAI Batch API
+- [ ] Research Batch API for overnight processing
+- [ ] Implement batch job submission
+- [ ] Add status polling or webhook handlers
+- [ ] Process 1000+ emails cost-effectively
+
+### Persistent Storage
+- [ ] Choose storage solution (Azure SQL, Table Storage, or Redis)
+- [ ] Design database schema
+- [ ] Implement database connection and ORM
+- [ ] Migrate from in-memory to persistent storage
+- [ ] Add database indexes for performance
+
+### Performance Testing
+- [ ] Benchmark current vs parallel performance
+- [ ] Test with 10, 50, 100, 1000 emails
+- [ ] Measure API rate limit impact
+- [ ] Document performance improvements
+
+**Target Improvements:**
+- Sequential (current): 10 emails in ~20s
+- Parallel (goal): 10 emails in ~5s (4x faster)
+- Batch API: 1000 emails overnight (~50% cost savings)
+
+**Estimated Time:** 1-2 weeks
+**Success Criteria:**
+- 4-5x speedup with parallel processing
+- Persistent storage survives server restarts
+- Can process 100+ emails efficiently
+
+---
+
+## Phase 8: Production Readiness (Future)
+
+### Token Refresh
+- [ ] Implement automatic token refresh using refresh_token
+- [ ] Add token expiry monitoring
+- [ ] Handle refresh token expiration gracefully
+- [ ] Test token refresh flow
+
+### Multi-User Support
+- [ ] Add session management (Flask-Login or FastAPI-Users)
+- [ ] Implement per-user storage (user_id in database)
+- [ ] Add user registration/login flow
+- [ ] Support user-specific category preferences
+
+### Database Migration
+- [ ] Set up Azure SQL Database or Table Storage
+- [ ] Create migration scripts
+- [ ] Add connection pooling
+- [ ] Implement backup strategy
+
+### Azure Deployment
+- [ ] Create Azure App Service
+- [ ] Configure environment variables in Azure
+- [ ] Set up CI/CD pipeline (GitHub Actions)
+- [ ] Add monitoring and logging (Application Insights)
+
+### IT-15 Compliance
+- [ ] Review University IT-15 policy requirements
+- [ ] Implement multi-factor authentication (if required)
+- [ ] Add audit logging
+- [ ] Security review with IT team
+
+**Estimated Time:** 2-3 weeks
+**Success Criteria:**
+- Multi-user system with authentication
+- Deployed to Azure App Service
+- Token refresh working automatically
+- Meets university security requirements
+
+---
+
 ## Optional Enhancements (If Time Permits)
 
 ### Backfill Feature
@@ -278,14 +375,24 @@ Must Have:
 - ✅ `/graph/fetch` returns email list from Graph API
 - ✅ `/classify` returns accurate category for single email
 - ✅ `/inbox/process-new` auto-classifies new emails
-- ✅ Web dashboard displays classified emails by category
+- ✅ **Idempotency: Same email never processed twice**
+- ✅ **Outlook category assignment works**
+- ✅ `/debug/processed` shows all processed emails
+- 🚧 Web dashboard displays classified emails by category
 - ✅ No crashes during normal operation
 
 Nice to Have:
-- 🎯 >85% classification accuracy
-- 🎯 Clean, readable code with comments
-- 🎯 Updated documentation with screenshots
-- 🎯 Deployed to Azure (or ready to deploy)
+- ✅ >85% classification accuracy (achieved with GPT-4o-mini)
+- ✅ Clean, readable code with comments
+- ✅ Updated documentation
+- 🎯 Deployed to Azure (Phase 8)
+- ✅ Test email generation script working
+
+**Phase 5 Status:** ✅ COMPLETE (2025-10-31)
+- All automated processing features working
+- Idempotency verified
+- Outlook categories assigned automatically
+- Performance acceptable for POC (~1.5-2.5s per email)
 
 ---
 

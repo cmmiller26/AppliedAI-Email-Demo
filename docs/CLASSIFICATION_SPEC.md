@@ -321,9 +321,122 @@ TEST_EMAILS = [
 
 ---
 
+## Outlook Category Assignment
+
+### Overview
+
+After classification, emails are automatically tagged with Outlook category labels using Microsoft Graph API. Categories appear as colored tags in Outlook desktop, web, and mobile.
+
+### Implementation
+
+**Function:** `assign_category_to_message(access_token, message_id, category)`
+**Location:** `src/graph.py`
+
+**Process:**
+1. GET current categories from email (`/me/messages/{id}?$select=categories`)
+2. Add new category to existing list (preserves user-defined categories)
+3. PATCH email with updated categories array
+4. Outlook automatically creates category if it doesn't exist
+
+**Example:**
+```python
+from src.graph import assign_category_to_message
+
+# Assign URGENT category to an email
+success = await assign_category_to_message(
+    access_token="eyJ0eXAiOiJKV1QiLCJhbGc...",
+    message_id="AAMkAGI2...",  # Graph API message ID
+    category="URGENT"
+)
+```
+
+### Requirements
+
+- **OAuth Scope:** `Mail.ReadWrite` (required for PATCH operations)
+- **message_id:** Graph API message ID (from `messages.id`, not `internetMessageId`)
+- **Category names:** Case-sensitive, must match classification categories
+
+### API Calls
+
+**GET categories:**
+```http
+GET https://graph.microsoft.com/v1.0/me/messages/{id}
+    ?$select=categories
+Authorization: Bearer {access_token}
+```
+
+**Response:**
+```json
+{
+  "categories": ["Blue Category", "Important"]
+}
+```
+
+**PATCH categories:**
+```http
+PATCH https://graph.microsoft.com/v1.0/me/messages/{id}
+Content-Type: application/json
+Authorization: Bearer {access_token}
+
+{
+  "categories": ["Blue Category", "Important", "URGENT"]
+}
+```
+
+**Response:** `204 No Content` (success)
+
+### Category Colors in Outlook
+
+Users can customize category colors in Outlook:
+
+**Suggested Colors:**
+- **URGENT** → Red 🔴
+- **ACADEMIC** → Blue 🔵
+- **ADMINISTRATIVE** → Orange 🟠
+- **SOCIAL** → Green 🟢
+- **PROMOTIONAL** → Purple 🟣
+- **OTHER** → Gray ⚪
+
+**How to customize (Outlook Web):**
+1. Settings (gear icon) → View all Outlook settings
+2. General → Categories
+3. Select category → Choose color
+
+**How to customize (Outlook Desktop):**
+1. Home tab → Categorize → All Categories
+2. Select category → Color dropdown
+3. Rename if desired (e.g., "🔴 URGENT")
+
+### Error Handling
+
+- **If category assignment fails:** Email is still marked as processed (classification succeeds)
+- **Error logged:** Server logs the failure but continues processing other emails
+- **Graceful degradation:** Users can still see classifications in `/debug/processed`
+
+**Common Errors:**
+- `401 Unauthorized`: Token expired or missing Mail.ReadWrite scope
+- `403 Forbidden`: Insufficient permissions
+- `404 Not Found`: Invalid message_id
+
+### Performance
+
+- **Latency:** ~200-500ms per email (1 GET + 1 PATCH request)
+- **Total per email:** ~1.5-2.5s (classification + category assignment)
+- **Batch of 10 emails:** ~20s (sequential processing)
+
+**Future Optimization:**
+- Batch PATCH requests (if Graph API supports)
+- Queue category assignments for async processing
+- Cache category state to avoid redundant GETs
+
+---
+
 ## Future Improvements
 
 1. **Multi-label classification** - Some emails fit multiple categories
 2. **Priority scoring** - Within each category, rank by importance
-3. **Smart folders** - Auto-move emails to Outlook folders based on category
-4. **Learning from user feedback** - Improve classifications based on user corrections
+3. **Batch category assignment** - Update multiple emails in one API call
+4. **Confidence thresholds** - Only assign category if confidence > 0.7
+5. **Learning from user feedback** - Improve classifications based on user corrections
+6. **Custom category definitions** - Allow users to define their own categories
+7. **Category icons** - Add emoji icons to category names automatically

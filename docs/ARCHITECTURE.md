@@ -309,16 +309,19 @@ def mark_processed(message_id: str, category: str, confidence: float):
 }
 ```
 
-### Processed Email Record
+### Processed Email Record (In-Memory Storage)
 ```python
-{
-    "internet_message_id": "<CAB...@mail.gmail.com>",
-    "category": "ACADEMIC",
-    "confidence": 0.92,
-    "timestamp": "2025-10-28T12:00:00Z",
-    "subject": "CS 4980 Assignment",
-    "from": "john-smith@uiowa.edu"
+processed_emails = {
+    "<CAB...@mail.gmail.com>": {  # Key: internetMessageId
+        "category": "ACADEMIC",
+        "confidence": 0.92,
+        "timestamp": "2025-10-31T12:00:00Z",
+        "subject": "CS 4980 Assignment",
+        "from": "john-smith@uiowa.edu"
+    }
 }
+
+last_check_time = datetime(2025, 10, 31, 12, 0, 0)  # Global variable
 ```
 
 ### Classification Result
@@ -332,6 +335,58 @@ def mark_processed(message_id: str, category: str, confidence: float):
 
 ---
 
+## Outlook Category Assignment
+
+### Category Assignment Flow
+
+```
+FastAPI         Graph API             Outlook
+   │                │                    │
+   │ Classify email │                    │
+   │ category="URGENT"                   │
+   │                │                    │
+   │ GET /messages/{id}                  │
+   │ $select=categories                  │
+   ├───────────────►│                    │
+   │                │                    │
+   │ Return current │                    │
+   │ categories: [] │                    │
+   │◄───────────────┤                    │
+   │                │                    │
+   │ PATCH /messages/{id}                │
+   │ {categories:["URGENT"]}             │
+   ├───────────────►│                    │
+   │                │  Update email      │
+   │                ├───────────────────►│
+   │                │                    │
+   │ 200 OK         │                    │
+   │◄───────────────┤                    │
+```
+
+### Implementation Details
+
+**Function:** `assign_category_to_message(access_token, message_id, category)`
+
+Located in: `src/graph.py`
+
+**Process:**
+1. GET current categories from email (preserves existing)
+2. Add new category if not already present
+3. PATCH email with updated categories array
+4. Outlook automatically creates category if doesn't exist
+
+**Requirements:**
+- OAuth scope: `Mail.ReadWrite` (required for PATCH operations)
+- message_id: Graph API message ID (not internetMessageId)
+- Category names are case-sensitive
+
+**Error Handling:**
+- If category assignment fails, email is still marked as processed
+- Logs error but continues processing other emails
+- Returns success=True/False
+
+---
+
 ## State Management (POC)
 
 ### Global State Variables
@@ -342,15 +397,21 @@ processed_emails = {}         # Classification results
 last_check_time = None        # Timestamp of last email fetch
 ```
 
-### Limitations (POC)
-- **No persistence:** Data lost on restart
+### Limitations (POC) - Phase 5 Complete (2025-10-31)
+- **No persistence:** Data lost on restart (in-memory only)
 - **Single-user only:** One token per server instance
-- **No token refresh:** Must re-authenticate after expiry
+- **No token refresh:** Must re-authenticate after expiry (~1 hour)
+- **Sequential processing:** Emails processed one at a time (~1.5-2.5s per email)
+- **Batch size limit:** Processes up to 50 emails per run
+- **No retry logic:** Failed classifications are skipped
 
-### Future: Production State
-- **Database:** PostgreSQL or Azure SQL
-- **Cache:** Redis for session tokens
+### Future: Production State (Phases 7-8)
+- **Database:** PostgreSQL, Azure SQL, or Azure Table Storage
+- **Cache:** Redis for session tokens and fast lookups
 - **Blob Storage:** Azure Blob for processed email metadata
+- **Parallel Processing:** asyncio with 5-10 concurrent workers
+- **Token Refresh:** Automatic refresh token flow
+- **Multi-user:** Session management with per-user storage
 
 ---
 
@@ -376,16 +437,151 @@ last_check_time = None        # Timestamp of last email fetch
 
 ## Scalability Considerations
 
-### Current Limitations
+### Current Limitations (Phase 5)
 - In-memory storage → Single server only
-- Synchronous processing → Blocks on slow API calls
-- No caching → Repeated classification of same emails
+- Sequential processing → One email at a time (~1.5-2.5s each)
+- No caching → Repeated API calls for category assignment
+- Synchronous batch processing → Blocks until all emails processed
 
-### Future Improvements
-- **Horizontal scaling:** Session state in Redis/database
-- **Async processing:** Background workers for classification
-- **Caching:** Cache classification results by email hash
-- **Webhooks:** Microsoft Graph webhooks instead of polling
+### Future Improvements (Phases 7-8)
+
+#### 1. Parallel Processing with asyncio
+**Implementation:**
+```python
+async def process_emails_parallel(emails, access_token, max_workers=5):
+    semaphore = asyncio.Semaphore(max_workers)
+
+    async def process_with_limit(email):
+        async with semaphore:
+            return await classify_and_assign(email, access_token)
+
+    results = await asyncio.gather(
+        *[process_with_limit(email) for email in emails],
+        return_exceptions=True
+    )
+    return results
+```
+
+**Benefits:**
+- 5-10x speedup (10 emails in ~5s instead of ~20s)
+- Better resource utilization
+- Rate limit control with semaphore
+
+**Challenges:**
+- Azure OpenAI rate limits (need quota management)
+- Graph API throttling (429 responses)
+- Error handling for partial failures
+
+#### 2. Azure OpenAI Batch API
+**Use Case:** Overnight processing of 1000+ emails
+
+**Benefits:**
+- ~50% cost discount
+- No rate limit concerns
+- Process large backlogs efficiently
+
+**Implementation:**
+```python
+# Submit batch job
+batch_job = await submit_batch_classification(emails)
+
+# Poll for completion (or use webhooks)
+while batch_job.status != "completed":
+    await asyncio.sleep(60)
+    batch_job = await get_batch_status(batch_job.id)
+
+# Process results
+results = await get_batch_results(batch_job.id)
+```
+
+#### 3. Persistent Storage Options
+
+**Option A: Azure SQL Database**
+```sql
+CREATE TABLE processed_emails (
+    internet_message_id VARCHAR(255) PRIMARY KEY,
+    graph_message_id VARCHAR(255) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    confidence DECIMAL(3,2),
+    subject NVARCHAR(MAX),
+    from_email VARCHAR(255),
+    processed_at DATETIME2 DEFAULT GETUTCDATE(),
+    INDEX idx_processed_at (processed_at),
+    INDEX idx_category (category)
+);
+```
+
+**Benefits:**
+- ACID guarantees
+- Complex queries for analytics
+- Familiar SQL interface
+- ~$5-10/month for basic tier
+
+**Option B: Azure Table Storage**
+```python
+# PartitionKey: category, RowKey: internet_message_id
+table_client.upsert_entity({
+    "PartitionKey": "URGENT",
+    "RowKey": "<CAB123@mail.gmail.com>",
+    "subject": "Assignment Due",
+    "confidence": 0.95,
+    "timestamp": datetime.utcnow()
+})
+```
+
+**Benefits:**
+- Lower cost (~$1/month)
+- High throughput (thousands of ops/sec)
+- Simple key-value model
+- No schema management
+
+**Option C: Redis Cache**
+```python
+redis_client.hset(
+    "processed_emails",
+    "<CAB123@mail.gmail.com>",
+    json.dumps({
+        "category": "URGENT",
+        "confidence": 0.95,
+        "timestamp": "2025-10-31T12:00:00Z"
+    })
+)
+```
+
+**Benefits:**
+- Sub-millisecond lookups
+- Pub/sub for real-time updates
+- TTL for auto-expiration
+- ~$10-20/month for basic tier
+
+#### 4. Horizontal Scaling
+- **Load balancer:** Azure Application Gateway
+- **Session state:** Move to Redis/SQL
+- **Stateless app servers:** Multiple FastAPI instances
+- **Message queue:** Azure Service Bus for background jobs
+
+#### 5. Caching Strategy
+- **Classification results:** Cache by email content hash (dedupe)
+- **Category assignments:** Cache recent assignments
+- **Graph API responses:** Cache user profile/folders
+- **TTL:** 1 hour for classifications, 24 hours for metadata
+
+#### 6. Webhooks Instead of Polling
+**Microsoft Graph Webhooks:**
+```python
+# Subscribe to inbox changes
+subscription = await graph_client.subscriptions.post({
+    "changeType": "created",
+    "notificationUrl": "https://your-app.com/webhooks/email-received",
+    "resource": "/me/mailFolders('inbox')/messages",
+    "expirationDateTime": datetime.utcnow() + timedelta(days=3)
+})
+```
+
+**Benefits:**
+- Real-time processing (no polling delay)
+- Lower API usage
+- Better user experience
 
 ---
 
@@ -489,15 +685,48 @@ logger.error(f"Graph API error: {error}")
 
 ---
 
-## Performance Targets (POC)
+## Performance Targets
 
-| Metric | Target | Notes |
-|--------|--------|-------|
-| Auth flow latency | <3s | Microsoft sign-in |
-| Email fetch | <1s | 10 emails |
-| Single classification | <2s | Azure OpenAI Service call |
-| Batch processing (100 emails) | <3min | Sequential, no parallelization |
-| Dashboard load | <1s | With cached results |
+### Current Performance (Phase 5 - Sequential)
+
+| Metric | Current | Notes |
+|--------|---------|-------|
+| Auth flow latency | ~2-3s | Microsoft sign-in |
+| Email fetch | <1s | 50 emails from Graph API |
+| Single classification | 1-2s | Azure OpenAI Service call |
+| Category assignment | 200-500ms | 1 GET + 1 PATCH to Graph API |
+| **Total per email** | **1.5-2.5s** | Classification + category assignment |
+| Batch processing (10 emails) | ~20s | Sequential processing |
+| Batch processing (50 emails) | ~2min | Sequential processing |
+| Dashboard load | <500ms | In-memory data retrieval |
+
+### Future Performance (Phase 7 - Parallel)
+
+| Metric | Target | Improvement | Implementation |
+|--------|--------|-------------|----------------|
+| Batch processing (10 emails) | ~5s | 4x faster | asyncio with 5 workers |
+| Batch processing (50 emails) | ~25s | 5x faster | asyncio with 10 workers |
+| Batch processing (100 emails) | ~50s | 4x faster | asyncio with 10 workers + rate limiting |
+| Overnight batch (1000+ emails) | N/A | Cost efficient | Azure OpenAI Batch API |
+| Database lookup | <10ms | Fast idempotency check | Redis or indexed SQL |
+
+### Bottlenecks and Optimization Opportunities
+
+1. **Azure OpenAI API** (~1-2s per call)
+   - Solution: Parallel processing with rate limit management
+   - Alternative: Batch API for large jobs
+
+2. **Graph API Category Assignment** (~200-500ms per email)
+   - Solution: Batch PATCH requests (if Graph API supports)
+   - Alternative: Queue assignments for async processing
+
+3. **Sequential Processing** (no concurrency)
+   - Solution: asyncio.gather() with semaphore
+   - Expected: 5-10x speedup
+
+4. **In-Memory Lookups** (fast, but not persistent)
+   - Solution: Redis cache or indexed database
+   - Expected: <10ms lookups even after restart
 
 ---
 

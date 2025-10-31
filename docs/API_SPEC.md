@@ -137,9 +137,15 @@ Classifies a single email using Azure OpenAI Service.
 
 ### Process New Emails
 
-**GET** `/inbox/process-new`
+**POST** `/inbox/process-new`
 
-Fetches unprocessed emails (received since last check), classifies them, and stores results.
+Fetches unprocessed emails (received since last check), classifies them using Azure OpenAI, assigns Outlook categories, and stores results.
+
+**Features:**
+- Ensures idempotency using `internetMessageId` (same email never processed twice)
+- Automatically assigns Outlook category labels to emails
+- Tracks `last_check_time` to only process new emails on subsequent runs
+- Processes up to 50 emails per batch
 
 **Query Parameters:**
 - None (uses stored timestamp of last processing)
@@ -148,8 +154,8 @@ Fetches unprocessed emails (received since last check), classifies them, and sto
 ```json
 {
   "processed": 5,
-  "lastCheck": "2025-10-28T09:00:00Z",
-  "newCheck": "2025-10-28T12:00:00Z",
+  "lastCheck": "2025-10-31T09:00:00Z",
+  "newCheck": "2025-10-31T12:00:00Z",
   "categories": {
     "URGENT": 1,
     "ACADEMIC": 3,
@@ -161,15 +167,60 @@ Fetches unprocessed emails (received since last check), classifies them, and sto
       "subject": "CS 4980 Assignment",
       "category": "ACADEMIC",
       "confidence": 0.92,
-      "receivedDateTime": "2025-10-28T10:30:00Z"
+      "receivedDateTime": "2025-10-31T10:30:00Z"
     }
   ]
 }
 ```
 
+**Idempotency Behavior:**
+- First run: Processes all emails in inbox (up to 50)
+- Subsequent runs: Only processes emails received after `lastCheck`
+- Already-processed emails are skipped (even if received after `lastCheck`)
+- Safe to call multiple times
+
+**Outlook Category Assignment:**
+- Each classified email automatically gets an Outlook category label
+- Categories appear as colored tags in Outlook desktop, web, and mobile
+- If category assignment fails, email is still marked as processed
+
 **Error Responses:**
 - `401 Unauthorized` - No valid token
 - `500 Internal Server Error` - Processing failure
+
+---
+
+### View Processed Emails (Debug)
+
+**GET** `/debug/processed`
+
+Returns all processed emails with their classifications (debug endpoint).
+
+**Query Parameters:**
+- None
+
+**Response:**
+```json
+{
+  "count": 10,
+  "last_check_time": "2025-10-31T12:00:00Z",
+  "emails": [
+    {
+      "internet_message_id": "<CAB123@mail.gmail.com>",
+      "subject": "CS 4980 Assignment Due Tonight",
+      "from": "professor@uiowa.edu",
+      "category": "URGENT",
+      "confidence": 0.95,
+      "processed_at": "2025-10-31T11:30:15Z"
+    }
+  ]
+}
+```
+
+**Notes:**
+- For development/debugging only
+- Shows all emails processed since server start
+- In-memory storage (cleared on server restart)
 
 ---
 
