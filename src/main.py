@@ -11,10 +11,10 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional, List
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
 from msal import ConfidentialClientApplication
-from src.graph import get_messages
+from src.graph import get_messages, assign_category_to_message
 from src.classifier import classify_email, PRESET_CATEGORIES
 
 # Load environment variables
@@ -113,6 +113,98 @@ class ErrorResponse(BaseModel):
         }
 
 
+class ProcessedEmailInfo(BaseModel):
+    """Single processed email information"""
+    id: str = Field(..., description="Graph API message ID")
+    subject: str = Field(..., description="Email subject")
+    category: str = Field(..., description="Classified category")
+    confidence: float = Field(..., description="Classification confidence")
+    receivedDateTime: str = Field(..., description="When email was received")
+
+
+class ProcessNewResponse(BaseModel):
+    """Response body for /inbox/process-new endpoint"""
+    processed: int = Field(..., description="Number of emails processed")
+    lastCheck: Optional[str] = Field(None, description="Previous check timestamp")
+    newCheck: str = Field(..., description="Current check timestamp")
+    categories: Dict[str, int] = Field(..., description="Count of emails per category")
+    emails: List[ProcessedEmailInfo] = Field(..., description="List of processed emails")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "processed": 5,
+                "lastCheck": "2025-10-31T09:00:00Z",
+                "newCheck": "2025-10-31T12:00:00Z",
+                "categories": {
+                    "URGENT": 1,
+                    "ACADEMIC": 3,
+                    "SOCIAL": 1
+                },
+                "emails": [
+                    {
+                        "id": "AAMkAGI...",
+                        "subject": "CS 4980 Assignment",
+                        "category": "ACADEMIC",
+                        "confidence": 0.92,
+                        "receivedDateTime": "2025-10-31T10:30:00Z"
+                    }
+                ]
+            }
+        }
+
+
+# Storage layer helper functions
+def is_processed(message_id: str) -> bool:
+    """
+    Check if an email has already been processed.
+
+    Args:
+        message_id: internetMessageId from Graph API
+
+    Returns:
+        True if email has been processed, False otherwise
+    """
+    return message_id in processed_emails
+
+
+def mark_processed(
+    message_id: str,
+    category: str,
+    confidence: float,
+    subject: str,
+    from_email: str
+) -> None:
+    """
+    Mark an email as processed and store its classification result.
+
+    Args:
+        message_id: internetMessageId from Graph API (unique identifier)
+        category: Classified category
+        confidence: Classification confidence score (0.0 to 1.0)
+        subject: Email subject line
+        from_email: Sender email address
+    """
+    processed_emails[message_id] = {
+        "category": category,
+        "confidence": confidence,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "subject": subject,
+        "from": from_email
+    }
+    logger.debug(f"Marked email as processed: {message_id[:20]}... -> {category}")
+
+
+def get_processed_emails() -> dict:
+    """
+    Get all processed emails with their classification results.
+
+    Returns:
+        Dictionary of processed emails keyed by internetMessageId
+    """
+    return processed_emails.copy()
+
+
 def cleanup_old_states(max_age_seconds: int = 3600):
     """
     Remove old state tokens from auth_state_store to prevent memory bloat.
@@ -178,6 +270,12 @@ async def root():
         expires_at = token_info.get("expires_at", 0)
         is_expired = time.time() > expires_at
 
+        # Calculate category distribution
+        category_stats = {}
+        for email_data in processed_emails.values():
+            cat = email_data["category"]
+            category_stats[cat] = category_stats.get(cat, 0) + 1
+
         return JSONResponse(
             status_code=200,
             content={
@@ -186,10 +284,16 @@ async def root():
                 "token_expires_at": datetime.fromtimestamp(expires_at).isoformat() + "Z",
                 "token_expired": is_expired,
                 "has_refresh_token": token_info.get("refresh_token") is not None,
+                "processing_stats": {
+                    "total_processed": len(processed_emails),
+                    "last_check_time": last_check_time.isoformat() + "Z" if last_check_time else None,
+                    "category_distribution": category_stats
+                },
                 "next_steps": [
                     "Use GET /graph/fetch to fetch emails from inbox",
                     "Use POST /classify to classify an email with Azure OpenAI",
-                    "Use GET /inbox/process-new to process new emails"
+                    "Use POST /inbox/process-new to process new emails automatically",
+                    "Use GET /debug/processed to view all processed emails"
                 ]
             }
         )
@@ -508,6 +612,31 @@ async def test_graph():
         return {"error": str(e), "results": results}
 
 
+@app.get("/debug/processed")
+async def debug_processed():
+    """
+    Debug endpoint to view all processed emails (for development only)
+
+    Returns:
+        JSON with count of processed emails, last check time, and full list
+    """
+    return {
+        "count": len(processed_emails),
+        "last_check_time": last_check_time.isoformat() + "Z" if last_check_time else None,
+        "emails": [
+            {
+                "internet_message_id": msg_id,
+                "subject": data["subject"],
+                "from": data["from"],
+                "category": data["category"],
+                "confidence": data["confidence"],
+                "processed_at": data["timestamp"]
+            }
+            for msg_id, data in processed_emails.items()
+        ]
+    }
+
+
 @app.get("/graph/fetch")
 async def graph_fetch(
     top: int = Query(10, ge=1, le=50, description="Number of emails to fetch (1-50)"),
@@ -703,6 +832,202 @@ async def classify(request: ClassifyRequest):
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "path": "/classify"
             }
+        )
+
+
+@app.post("/inbox/process-new", response_model=ProcessNewResponse)
+async def process_new_emails():
+    """
+    Fetch and classify new emails since last check
+
+    Retrieves emails received since the last processing run (or all emails on first run),
+    filters out already-processed emails using internetMessageId for idempotency,
+    classifies each new email with Azure OpenAI, and stores the results.
+
+    Returns:
+        ProcessNewResponse with processing summary and classified emails
+
+    Error Responses:
+        401 Unauthorized: No valid token (user must authenticate)
+        500 Internal Server Error: Graph API or classification failures
+    """
+    global last_check_time
+
+    try:
+        logger.info("Starting batch processing of new emails")
+
+        # Validate and get access token
+        access_token = get_valid_token()
+
+        if not access_token:
+            logger.warning("Process-new attempted without valid authentication")
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated. Please visit /auth/login to authenticate with Microsoft."
+            )
+
+        # Store old last_check_time for response
+        previous_check = last_check_time.isoformat() + "Z" if last_check_time else None
+
+        # Fetch emails from Graph API
+        # On first run, fetch all emails (no filter)
+        # On subsequent runs, only fetch emails newer than last_check_time
+        logger.info(f"Fetching emails (last check: {previous_check or 'never'})")
+
+        try:
+            # Fetch emails - get more than default to process in batches
+            result = await get_messages(
+                access_token=access_token,
+                top=50,  # Fetch up to 50 emails per batch
+                skip=0,
+                folder="inbox"
+            )
+
+            messages = result.get("messages", [])
+            logger.info(f"Fetched {len(messages)} emails from Graph API")
+
+        except Exception as graph_error:
+            logger.error(f"Error fetching messages from Graph API: {str(graph_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch emails: {str(graph_error)}"
+            )
+
+        # Filter messages to only those received after last_check_time
+        if last_check_time:
+            # Filter by receivedDateTime
+            new_messages = []
+            for msg in messages:
+                received_dt_str = msg.get("receivedDateTime")
+                if received_dt_str:
+                    # Parse ISO 8601 datetime
+                    from dateutil import parser
+                    received_dt = parser.parse(received_dt_str)
+                    # Remove timezone info for comparison
+                    received_dt_naive = received_dt.replace(tzinfo=None)
+
+                    if received_dt_naive > last_check_time:
+                        new_messages.append(msg)
+
+            messages = new_messages
+            logger.info(f"Filtered to {len(messages)} emails received after last check")
+
+        # Filter out already processed emails (idempotency)
+        unprocessed_messages = []
+        for msg in messages:
+            message_id = msg.get("internetMessageId")
+            if not message_id:
+                logger.warning(f"Email missing internetMessageId: {msg.get('id')} - skipping")
+                continue
+
+            if is_processed(message_id):
+                logger.debug(f"Email already processed: {message_id[:20]}... - skipping")
+                continue
+
+            unprocessed_messages.append(msg)
+
+        logger.info(f"Found {len(unprocessed_messages)} unprocessed emails to classify")
+
+        # Process each unprocessed email
+        processed_count = 0
+        category_counts = {}
+        processed_emails_info = []
+
+        for msg in unprocessed_messages:
+            try:
+                # Extract email fields
+                message_id = msg.get("internetMessageId")
+                subject = msg.get("subject", "(No Subject)")
+                body_preview = msg.get("bodyPreview", "")
+                received_dt = msg.get("receivedDateTime")
+                graph_id = msg.get("id")
+
+                # Extract sender email address
+                from_obj = msg.get("from", {})
+                from_email_obj = from_obj.get("emailAddress", {})
+                from_email = from_email_obj.get("address", "unknown@example.com")
+
+                logger.info(f"Classifying email: '{subject[:50]}...' from {from_email}")
+
+                # Classify email
+                classification = classify_email(
+                    subject=subject,
+                    body=body_preview,
+                    from_address=from_email
+                )
+
+                category = classification["category"]
+                confidence = classification["confidence"]
+
+                # Assign Outlook category to the email
+                try:
+                    await assign_category_to_message(
+                        access_token=access_token,
+                        message_id=graph_id,
+                        category=category
+                    )
+                    logger.info(f"Assigned Outlook category '{category}' to email")
+                except Exception as category_error:
+                    # Log error but don't fail the whole batch
+                    logger.error(f"Failed to assign category to email: {str(category_error)}")
+                    # Continue processing - classification still succeeded
+
+                # Mark as processed
+                mark_processed(
+                    message_id=message_id,
+                    category=category,
+                    confidence=confidence,
+                    subject=subject,
+                    from_email=from_email
+                )
+
+                # Update category counts
+                category_counts[category] = category_counts.get(category, 0) + 1
+
+                # Add to response list
+                processed_emails_info.append(ProcessedEmailInfo(
+                    id=graph_id,
+                    subject=subject,
+                    category=category,
+                    confidence=confidence,
+                    receivedDateTime=received_dt
+                ))
+
+                processed_count += 1
+                logger.info(f"Email classified as {category} (confidence: {confidence:.2f})")
+
+            except Exception as classify_error:
+                # Log error but continue processing other emails
+                logger.error(f"Error classifying email {msg.get('id')}: {str(classify_error)}")
+                # Don't raise - continue to next email
+                continue
+
+        # Update last_check_time to now
+        current_time = datetime.utcnow()
+        last_check_time = current_time
+        new_check = current_time.isoformat() + "Z"
+
+        logger.info(f"Batch processing complete: {processed_count} emails processed")
+        logger.info(f"Category distribution: {category_counts}")
+
+        # Return summary
+        return ProcessNewResponse(
+            processed=processed_count,
+            lastCheck=previous_check,
+            newCheck=new_check,
+            categories=category_counts,
+            emails=processed_emails_info
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already logged)
+        raise
+    except Exception as e:
+        # Catch any unexpected errors
+        logger.error(f"Unexpected error in /inbox/process-new: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch processing failed: {str(e)}"
         )
 
 

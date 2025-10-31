@@ -163,3 +163,115 @@ async def get_messages(
         # Unexpected error (JSON parsing, etc.)
         logger.error(f"Unexpected error in get_messages: {str(e)}")
         raise
+
+
+async def assign_category_to_message(
+    access_token: str,
+    message_id: str,
+    category: str
+) -> bool:
+    """
+    Assign an Outlook category to an email message
+
+    Uses Microsoft Graph API to add a category label to an email.
+    The category will be created automatically if it doesn't exist.
+
+    Args:
+        access_token: OAuth access token with Mail.ReadWrite scope
+        message_id: Graph API message ID (not internetMessageId)
+        category: Category name to assign (e.g., "URGENT", "ACADEMIC")
+
+    Returns:
+        True if category was assigned successfully, False otherwise
+
+    Raises:
+        httpx.HTTPStatusError: If Graph API returns error status
+        httpx.RequestError: If network request fails
+
+    Example:
+        success = await assign_category_to_message(
+            access_token="eyJ0...",
+            message_id="AAMkAGI...",
+            category="URGENT"
+        )
+    """
+    logger.info(f"Assigning category '{category}' to message {message_id[:20]}...")
+
+    # Build request URL
+    url = f"{GRAPH_API_BASE_URL}/me/messages/{message_id}"
+
+    # Request headers with authentication
+    token = access_token.strip()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    # Request body - PATCH to update the categories property
+    # Categories is an array of category names
+    # We need to GET first to preserve existing categories, then add ours
+    try:
+        async with httpx.AsyncClient() as client:
+            # First, get current categories
+            response_get = await client.get(
+                url,
+                headers=headers,
+                params={"$select": "categories"}
+            )
+
+            if response_get.status_code == 401:
+                logger.error(f"Graph API returned 401 when fetching message categories")
+                raise httpx.HTTPStatusError(
+                    message="Unauthorized: Access token is invalid or expired",
+                    request=response_get.request,
+                    response=response_get
+                )
+
+            response_get.raise_for_status()
+            current_data = response_get.json()
+            current_categories = current_data.get("categories", [])
+
+            # Add our category if not already present
+            if category not in current_categories:
+                current_categories.append(category)
+
+            # PATCH to update categories
+            payload = {
+                "categories": current_categories
+            }
+
+            logger.debug(f"Updating message categories to: {current_categories}")
+
+            response_patch = await client.patch(
+                url,
+                headers=headers,
+                json=payload
+            )
+
+            if response_patch.status_code == 401:
+                logger.error(f"Graph API returned 401 when updating message categories")
+                raise httpx.HTTPStatusError(
+                    message="Unauthorized: Access token is invalid or expired",
+                    request=response_patch.request,
+                    response=response_patch
+                )
+
+            response_patch.raise_for_status()
+
+            logger.info(f"Successfully assigned category '{category}' to message")
+            return True
+
+    except httpx.HTTPStatusError as e:
+        # HTTP error from Graph API
+        logger.error(f"Graph API returned error {e.response.status_code}: {e.response.text}")
+        raise
+
+    except httpx.RequestError as e:
+        # Network or connection error
+        logger.error(f"Network error while calling Graph API: {str(e)}")
+        raise
+
+    except Exception as e:
+        # Unexpected error
+        logger.error(f"Unexpected error in assign_category_to_message: {str(e)}")
+        raise
