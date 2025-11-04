@@ -360,14 +360,60 @@ Triggers batch classification of all existing emails in inbox. Long-running oper
 
 **GET** `/`
 
-Simple HTML dashboard showing classification results.
+Interactive web dashboard displaying email classification statistics and results.
 
 **Response:**
 - HTML page with:
-  - Login button (if not authenticated)
-  - Email list grouped by category
-  - "Process New Emails" button
-  - "Backfill Inbox" button (optional)
+  - **Not Authenticated View:**
+    - Login screen with "Sign In with Microsoft" button
+    - University of Iowa branding
+  - **Authenticated View:**
+    - **Stats Cards:**
+      - Total processed emails
+      - Last check time (relative: "Just now", "5m ago", etc.)
+      - Scheduler status (Running/Stopped with indicator)
+      - Average confidence percentage
+    - **Category Distribution:**
+      - 6 category cards with emoji, description, and count
+      - Color-coded by category (red, blue, orange, green, purple, gray)
+    - **Action Bar:**
+      - "Process New Emails" button (with loading state)
+      - "View Debug Data" link (opens /debug/processed)
+      - Auto-refresh checkbox (30-second reload)
+    - **Email Lists:**
+      - Tables grouped by category
+      - Shows subject, from, timestamp, confidence badge
+      - Color-coded confidence: green (80%+), yellow (60-79%), red (<60%)
+      - Limited to 10 most recent emails per category
+    - **Empty State:**
+      - Friendly message if no emails processed yet
+    - **Logout Button:**
+      - Clears token and returns to login screen
+
+**Features:**
+- Responsive design using Tailwind CSS
+- Real-time stats updated on page load
+- JavaScript-driven process button with feedback
+- Optional auto-refresh for monitoring
+
+**Technologies:**
+- Jinja2 templates for server-side rendering
+- Tailwind CSS (CDN) for styling
+- Vanilla JavaScript for interactivity
+
+---
+
+**GET** `/auth/logout`
+
+Logout endpoint that clears user token and redirects to dashboard.
+
+**Response:**
+- `302 Redirect` to `/` (dashboard)
+- Token removed from server memory
+
+**Notes:**
+- After logout, dashboard shows login screen
+- Safe to call even if not authenticated
 
 ---
 

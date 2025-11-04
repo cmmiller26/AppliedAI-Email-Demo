@@ -15,12 +15,17 @@
 │                                     │
 │  ┌────────────┐  ┌──────────────┐   │
 │  │   Auth     │  │  Dashboard   │   │
-│  │  Endpoints │  │   (HTML)     │   │
+│  │  Endpoints │  │  (Jinja2)    │   │
 │  └────────────┘  └──────────────┘   │
 │                                     │
 │  ┌────────────┐  ┌──────────────┐   │
 │  │   Graph    │  │ Classifier   │   │
 │  │    API     │  │  (Azure AI)  │   │
+│  └────────────┘  └──────────────┘   │
+│                                     │
+│  ┌────────────┐  ┌──────────────┐   │
+│  │ Scheduler  │  │  Batch       │   │
+│  │ (APSched)  │  │ Processor    │   │
 │  └────────────┘  └──────────────┘   │
 │                                     │
 │  ┌────────────────────────────────┐ │
@@ -57,7 +62,7 @@
 - `src/graph.py` - Microsoft Graph API integration
 - `src/classifier.py` - Azure OpenAI classification logic
 - `src/scheduler.py` - Background email processing scheduler
-- `templates/` - HTML templates for dashboard (future)
+- `templates/dashboard.html` - Web dashboard UI
 
 **Dependencies:**
 - `fastapi` - Web framework
@@ -299,7 +304,141 @@ def mark_processed(message_id: str, category: str, confidence: float):
 
 ---
 
-### 6. Background Scheduler (`src/scheduler.py`)
+### 6. Web Dashboard (`templates/dashboard.html`)
+
+The dashboard provides a web interface for monitoring and controlling the email classification system.
+
+**Architecture:**
+```
+Browser                FastAPI              Templates
+   │                      │                     │
+   │  GET /              │                     │
+   ├────────────────────►│                     │
+   │                     │                     │
+   │                     │  Check auth         │
+   │                     │                     │
+   │                     │  Get processed      │
+   │                     │  emails from        │
+   │                     │  memory             │
+   │                     │                     │
+   │                     │  Calculate stats    │
+   │                     │  Group by category  │
+   │                     │  Format timestamps  │
+   │                     │                     │
+   │                     │  Render template    │
+   │                     ├────────────────────►│
+   │                     │                     │
+   │                     │  Return HTML        │
+   │                     │◄────────────────────┤
+   │                     │                     │
+   │  HTML Response      │                     │
+   │◄────────────────────┤                     │
+   │                     │                     │
+   │  Click "Process"    │                     │
+   │  (JavaScript)       │                     │
+   ├────────────────────►│                     │
+   │  POST /inbox/       │                     │
+   │  process-new        │                     │
+   │                     │                     │
+   │  JSON Response      │                     │
+   │◄────────────────────┤                     │
+   │                     │                     │
+   │  Reload page        │                     │
+   ├────────────────────►│                     │
+```
+
+**Features:**
+
+1. **Authentication State Management**
+   - Shows login screen if not authenticated
+   - Displays full dashboard after successful login
+   - Logout button clears token and returns to login
+
+2. **Statistics Dashboard**
+   - Total processed emails count
+   - Last check time (relative: "Just now", "5m ago", "2h ago")
+   - Scheduler status (Running/Stopped with animated indicator)
+   - Average confidence score percentage
+
+3. **Category Distribution**
+   - 6 category cards with emoji icons
+   - Email count per category
+   - Color-coded borders (red, blue, orange, green, purple, gray)
+   - Category descriptions
+
+4. **Email Lists**
+   - Tables grouped by category
+   - Shows: subject (truncated), from address, timestamp, confidence
+   - Color-coded confidence badges:
+     - Green (80%+): High confidence
+     - Yellow (60-79%): Medium confidence
+     - Red (<60%): Low confidence
+   - Limited to 10 most recent per category
+
+5. **Action Controls**
+   - "Process New Emails" button with loading state
+   - "View Debug Data" link (opens /debug/processed)
+   - Auto-refresh checkbox (30-second reload)
+   - Logout button
+
+6. **Empty State**
+   - Friendly message when no emails processed
+   - Call-to-action to process first batch
+
+**Implementation Details:**
+
+```python
+# Category information for display
+CATEGORY_INFO = {
+    "URGENT": {"emoji": "🔴", "description": "Time-sensitive", "color": "red"},
+    "ACADEMIC": {"emoji": "📚", "description": "Class-related", "color": "blue"},
+    "ADMINISTRATIVE": {"emoji": "🏛️", "description": "University business", "color": "orange"},
+    "SOCIAL": {"emoji": "🎉", "description": "Events & clubs", "color": "green"},
+    "PROMOTIONAL": {"emoji": "📢", "description": "Marketing", "color": "purple"},
+    "OTHER": {"emoji": "📦", "description": "Everything else", "color": "gray"}
+}
+
+# Dashboard endpoint
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    # Check authentication
+    authenticated = "demo_user" in user_tokens
+
+    if not authenticated:
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "authenticated": False
+        })
+
+    # Calculate stats and group emails
+    # ...
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "authenticated": True,
+        "stats": {...},
+        "categories": {...},
+        "last_check_time": formatted_time,
+        "scheduler_status": {...}
+    })
+```
+
+**Technologies:**
+- **Template Engine**: Jinja2 for server-side rendering
+- **Styling**: Tailwind CSS (loaded from CDN)
+- **JavaScript**: Vanilla JS for interactive features
+  - `processNewEmails()` - Handles process button with AJAX
+  - `enableAutoRefresh()` - Implements 30-second auto-reload
+- **Responsive Design**: Works on mobile, tablet, and desktop
+
+**File Location:**
+- Template: `templates/dashboard.html` (~350 lines)
+- Endpoint: `src/main.py:dashboard()` (lines 275-361)
+- Logout: `src/main.py:logout()` (lines 554-569)
+
+---
+
+### 7. Background Scheduler (`src/scheduler.py`)
 
 The scheduler provides automatic email processing at configurable intervals using APScheduler.
 

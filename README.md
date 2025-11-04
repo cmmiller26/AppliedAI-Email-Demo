@@ -9,6 +9,8 @@ This proof-of-concept demonstrates:
 - **Email Fetching** via Microsoft Graph API
 - **AI Classification** using Azure AI Foundry with Azure OpenAI (GPT-4o-mini)
 - **Automated Batch Processing** with idempotency and Outlook category assignment
+- **Background Scheduler** for automatic email processing
+- **Web Dashboard** for monitoring and control
 - **FastAPI Web Application** hosted on Azure App Service (planned)
 
 ## Quick Start
@@ -126,20 +128,20 @@ curl -X POST http://localhost:8000/inbox/process-new
 ┌─────────────────────────┐
 │   FastAPI Application   │
 │                         │
-│  ┌────────┐  ┌────────┐│
-│  │  Auth  │  │ Graph  ││
-│  │  Flow  │  │  API   ││
-│  └────────┘  └────────┘│
+│  ┌────────┐  ┌────────┐ │
+│  │  Auth  │  │ Graph  │ │
+│  │  Flow  │  │  API   │ │
+│  └────────┘  └────────┘ │
 │                         │
-│  ┌────────────────────┐│
-│  │ Azure OpenAI       ││
-│  │   Classifier       ││
-│  └────────────────────┘│
+│  ┌────────────────────┐ │
+│  │ Azure OpenAI       │ │
+│  │   Classifier       │ │
+│  └────────────────────┘ │
 │                         │
-│  ┌────────────────────┐│
-│  │ Batch Processor &  ││
-│  │ Category Assigner  ││
-│  └────────────────────┘│
+│  ┌────────────────────┐ │
+│  │ Batch Processor &  │ │
+│  │ Category Assigner  │ │
+│  └────────────────────┘ │
 └────────┬────────────┬───┘
          │            │
          ▼            ▼
@@ -151,23 +153,29 @@ curl -X POST http://localhost:8000/inbox/process-new
 
 ## API Endpoints
 
-### Authentication
+### Dashboard & Authentication
+- `GET /` - **Interactive web dashboard** with stats, category distribution, and email lists
 - `GET /auth/login` - Initiate OAuth flow
 - `GET /auth/callback` - OAuth callback handler
+- `GET /auth/logout` - Logout and clear token
 
 ### Email Operations
 - `GET /graph/fetch` - Fetch emails from mailbox
   - Query params: `top`, `skip`, `folder` (inbox/drafts/sentitems)
-- `POST /inbox/process-new` - **NEW!** Automatically process new emails with classification and Outlook category assignment
+- `POST /inbox/process-new` - Automatically process new emails with classification and Outlook category assignment
 
 ### Classification
 - `POST /classify` - Classify individual email
 
+### Scheduler Control
+- `POST /scheduler/start` - Start background processing
+- `POST /scheduler/stop` - Stop background processing
+- `GET /scheduler/status` - Get scheduler status and stats
+
 ### Debug
 - `GET /health` - Health check
-- `GET /` - Dashboard with processing statistics
 - `GET /debug/token` - View token info
-- `GET /debug/processed` - **NEW!** View all processed emails with classifications
+- `GET /debug/processed` - View all processed emails with classifications
 
 ## Email Categories
 
@@ -182,6 +190,44 @@ The system classifies emails into 6 categories and automatically assigns Outlook
 | **PROMOTIONAL** 📢 | Marketing and promotions | Purple | Sales, subscriptions, newsletters |
 | **OTHER** 📦 | Everything else | Gray | Package delivery, password resets |
 
+## Web Dashboard
+
+### Features
+
+Access the dashboard at `http://localhost:8000/` after authentication.
+
+**Stats Overview:**
+- Total processed emails count
+- Last check time (relative: "Just now", "5m ago", "2h ago")
+- Scheduler status (Running/Stopped with animated indicator)
+- Average confidence percentage
+
+**Category Distribution:**
+- 6 category cards with emoji icons and counts
+- Color-coded by category (red, blue, orange, green, purple, gray)
+- Shows description for each category
+
+**Email Lists:**
+- Tables grouped by category showing recent emails
+- Displays: subject (truncated), from address, timestamp
+- Color-coded confidence badges:
+  - 🟢 Green (80%+): High confidence
+  - 🟡 Yellow (60-79%): Medium confidence
+  - 🔴 Red (<60%): Low confidence
+- Limited to 10 most recent emails per category
+
+**Action Controls:**
+- **Process New Emails** button - Triggers batch processing with loading state
+- **View Debug Data** link - Opens detailed JSON view
+- **Auto-refresh** checkbox - Reloads page every 30 seconds
+- **Logout** button - Clears token and returns to login screen
+
+**Technologies:**
+- Jinja2 templates for server-side rendering
+- Tailwind CSS for responsive styling
+- Vanilla JavaScript for interactivity
+- University of Iowa branding
+
 ## Automated Processing Features
 
 ### Batch Processing (/inbox/process-new)
@@ -190,6 +236,13 @@ The system classifies emails into 6 categories and automatically assigns Outlook
 - Assigns Outlook category labels automatically
 - Ensures idempotency using `internetMessageId`
 - Returns summary with category distribution
+
+### Background Scheduler
+- Automatically processes new emails at configurable intervals (default: 60s)
+- Runs in background thread using APScheduler
+- Auto-starts on application startup
+- Control via REST API or environment variables
+- Graceful error handling (token expiry, API failures)
 
 ### Outlook Category Assignment
 Emails are automatically tagged with colored category labels in Outlook:
@@ -277,7 +330,10 @@ appliedai-email-classifier-poc/
 │   ├── __init__.py
 │   ├── main.py             # Main FastAPI application
 │   ├── graph.py            # Microsoft Graph API integration
-│   └── classifier.py       # Azure OpenAI classification logic
+│   ├── classifier.py       # Azure OpenAI classification logic
+│   └── scheduler.py        # Background email processing scheduler
+├── templates/              # Web dashboard templates
+│   └── dashboard.html      # Main dashboard UI
 ├── requirements.txt        # Python dependencies
 ├── .env                    # Environment variables (not in git)
 ├── docs/                   # Documentation
@@ -295,34 +351,33 @@ appliedai-email-classifier-poc/
 
 ## Development Status
 
-**Phase 5 Completed: 2025-10-31** ✅
+**POC COMPLETE: 2025-11-04** ✅
 
-### ✅ Completed:
+### ✅ Completed (Phases 1-6):
 - OAuth authentication flow with Microsoft Entra ID
 - Microsoft Graph API integration
 - Email fetching from inbox/drafts/sentitems
-- Azure OpenAI Service classification endpoint
-- **Automated batch processing (/inbox/process-new)**
-- **Idempotency using internetMessageId**
+- Azure OpenAI Service classification via AI Foundry
+- **Automated batch processing with idempotency**
 - **Automatic Outlook category assignment**
+- **Background scheduler with APScheduler**
+- **Professional web dashboard with stats and controls**
 - **In-memory storage (processed_emails, last_check_time)**
-- **Debug endpoint for viewing processed emails**
+- Debug endpoints for development
 - Test email generation script
-- Folder-based email reading (drafts for testing)
+- Comprehensive documentation
 
-### 🚧 In Progress:
-- Web dashboard UI
-
-### 📋 Planned (Future Phases):
-- **Performance Optimization (Phase 7)**
+### 📋 Future Enhancements (Phases 7-8):
+- **Performance Optimization**
   - Parallel processing with asyncio (5-10 workers)
   - Azure OpenAI Batch API for overnight processing
   - Persistent storage (Azure SQL or Table Storage)
-- **Production Readiness (Phase 8)**
+- **Production Readiness**
   - Token refresh logic
   - Multi-user support with session management
   - Database migration from in-memory storage
-  - Azure deployment and monitoring
+  - Azure App Service deployment
+  - Enhanced monitoring and logging
   - Compliance with IT-15 policy
 
 ## Known Limitations (POC)
