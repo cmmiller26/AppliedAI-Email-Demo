@@ -5,8 +5,9 @@ Main application entry point
 Uses Azure AI Foundry with Azure OpenAI for email classification.
 """
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 import logging
@@ -36,6 +37,19 @@ app = FastAPI(
     description="Automated email classification using Microsoft Graph and Azure AI Foundry with Azure OpenAI",
     version="0.1.0"
 )
+
+# Initialize Jinja2 templates
+templates = Jinja2Templates(directory="templates")
+
+# Category information for dashboard display
+CATEGORY_INFO = {
+    "URGENT": {"emoji": "🔴", "description": "Time-sensitive", "color": "red"},
+    "ACADEMIC": {"emoji": "📚", "description": "Class-related", "color": "blue"},
+    "ADMINISTRATIVE": {"emoji": "🏛️", "description": "University business", "color": "orange"},
+    "SOCIAL": {"emoji": "🎉", "description": "Events & clubs", "color": "green"},
+    "PROMOTIONAL": {"emoji": "📢", "description": "Marketing", "color": "purple"},
+    "OTHER": {"emoji": "📦", "description": "Everything else", "color": "gray"}
+}
 
 # MSAL Configuration
 # Build authority URL for Microsoft Entra ID OAuth
@@ -258,59 +272,93 @@ def get_valid_token() -> Optional[str]:
     return token_info.get("access_token")
 
 
-@app.get("/")
-async def root():
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
     """
-    Root endpoint - simple dashboard showing authentication status.
+    Dashboard showing email classification statistics and results.
+
+    Displays authentication status, processing stats, category distribution,
+    and detailed email lists grouped by category.
 
     Returns:
-        JSON response with authentication status and next steps
+        HTML page with interactive dashboard
     """
-    is_authenticated = "demo_user" in user_tokens
+    # Check if authenticated
+    authenticated = "demo_user" in user_tokens
 
-    if is_authenticated:
-        token_info = user_tokens["demo_user"]
-        expires_at = token_info.get("expires_at", 0)
-        is_expired = time.time() > expires_at
+    if not authenticated:
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "authenticated": False
+        })
 
-        # Calculate category distribution
-        category_stats = {}
-        for email_data in processed_emails.values():
-            cat = email_data["category"]
-            category_stats[cat] = category_stats.get(cat, 0) + 1
+    # Get processed emails and calculate stats
+    emails_list = []
+    for msg_id, email_data in processed_emails.items():
+        # Convert timestamp string to datetime object for template
+        timestamp_str = email_data.get("timestamp", "")
+        try:
+            from dateutil import parser
+            timestamp_dt = parser.parse(timestamp_str)
+        except:
+            timestamp_dt = datetime.utcnow()
 
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": "Authentication successful!",
-                "authenticated": True,
-                "token_expires_at": datetime.fromtimestamp(expires_at).isoformat() + "Z",
-                "token_expired": is_expired,
-                "has_refresh_token": token_info.get("refresh_token") is not None,
-                "processing_stats": {
-                    "total_processed": len(processed_emails),
-                    "last_check_time": last_check_time.isoformat() + "Z" if last_check_time else None,
-                    "category_distribution": category_stats
-                },
-                "next_steps": [
-                    "Use GET /graph/fetch to fetch emails from inbox",
-                    "Use POST /classify to classify an email with Azure OpenAI",
-                    "Use POST /inbox/process-new to process new emails automatically",
-                    "Use GET /debug/processed to view all processed emails"
-                ]
-            }
-        )
-    else:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": "Welcome to Email Sorting POC",
-                "authenticated": False,
-                "next_steps": [
-                    "Visit /auth/login to authenticate with Microsoft"
-                ]
-            }
-        )
+        emails_list.append({
+            "category": email_data.get("category", "OTHER"),
+            "confidence": email_data.get("confidence", 0.0),
+            "subject": email_data.get("subject", "(No Subject)"),
+            "from": email_data.get("from", "unknown"),
+            "timestamp": timestamp_dt
+        })
+
+    total_emails = len(emails_list)
+    avg_confidence = sum(e["confidence"] for e in emails_list) / total_emails if total_emails > 0 else 0
+
+    # Group emails by category
+    categories_data = {}
+    for category_name, info in CATEGORY_INFO.items():
+        category_emails = [e for e in emails_list if e["category"] == category_name]
+        category_emails.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        categories_data[category_name] = {
+            "count": len(category_emails),
+            "emails": category_emails,
+            "emoji": info["emoji"],
+            "description": info["description"],
+            "color": info["color"]
+        }
+
+    # Format last check time as relative time
+    formatted_last_check = None
+    if last_check_time:
+        time_diff = datetime.utcnow() - last_check_time
+        if time_diff.total_seconds() < 60:
+            formatted_last_check = "Just now"
+        elif time_diff.total_seconds() < 3600:
+            minutes = int(time_diff.total_seconds() / 60)
+            formatted_last_check = f"{minutes}m ago"
+        else:
+            hours = int(time_diff.total_seconds() / 3600)
+            formatted_last_check = f"{hours}h ago"
+
+    # Get scheduler status
+    try:
+        from src.scheduler import get_scheduler_status
+        scheduler_status = get_scheduler_status()
+    except Exception:
+        scheduler_status = {"running": False}
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "authenticated": True,
+        "stats": {
+            "total": total_emails,
+            "avg_confidence": avg_confidence
+        },
+        "categories": categories_data,
+        "last_check_time": formatted_last_check,
+        "scheduler_status": scheduler_status
+    })
 
 
 @app.get("/health")
@@ -501,6 +549,24 @@ async def auth_callback(
             status_code=500,
             detail=f"Authentication failed: {str(e)}"
         )
+
+
+@app.get("/auth/logout")
+async def logout():
+    """
+    Logout endpoint - clears user token and redirects to dashboard.
+
+    This removes the stored authentication token, effectively logging out
+    the user. After logout, the dashboard will show the login screen.
+
+    Returns:
+        302 Redirect to dashboard (/)
+    """
+    if "demo_user" in user_tokens:
+        del user_tokens["demo_user"]
+        logger.info("User logged out successfully")
+
+    return RedirectResponse(url="/", status_code=302)
 
 
 @app.get("/debug/token")

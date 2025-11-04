@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Classifier Dashboard - University of Iowa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-yellow-400 to-yellow-500 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div class="text-4xl">📧</div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">Email Classifier</h1>
+                        <p class="text-sm text-gray-700">University of Iowa - Applied AI POC</p>
+                    </div>
+                </div>
+                {% if authenticated %}
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="h-3 w-3 bg-green-500 rounded-full animate-pulse"></span>
+                        <span class="text-sm font-medium text-gray-900">Authenticated</span>
+                    </div>
+                    <a href="/auth/logout" class="bg-white text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-100 transition shadow">
+                        Logout
+                    </a>
+                </div>
+                {% else %}
+                <div class="flex items-center space-x-2">
+                    <span class="h-3 w-3 bg-red-500 rounded-full"></span>
+                    <span class="text-sm font-medium text-gray-900">Not Authenticated</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    {% if not authenticated %}
+    <!-- Not Authenticated State -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div class="bg-white rounded-lg shadow-lg p-12 text-center max-w-2xl mx-auto">
+            <div class="text-6xl mb-6">🔒</div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-4">Authentication Required</h2>
+            <p class="text-gray-600 mb-8 text-lg">
+                Please sign in with your Microsoft account to access the email classification dashboard.
+            </p>
+            <a href="/auth/login" class="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-blue-700 transition shadow-lg text-lg">
+                Sign In with Microsoft
+            </a>
+        </div>
+    </div>
+    {% else %}
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- Stats Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Total Processed -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600 mb-1">Total Processed</p>
+                        <p class="text-3xl font-bold text-gray-900">{{ stats.total }}</p>
+                    </div>
+                    <div class="text-4xl">📬</div>
+                </div>
+            </div>
+
+            <!-- Last Check -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600 mb-1">Last Check</p>
+                        <p class="text-2xl font-bold text-gray-900">
+                            {% if last_check_time %}{{ last_check_time }}{% else %}Never{% endif %}
+                        </p>
+                    </div>
+                    <div class="text-4xl">🕐</div>
+                </div>
+            </div>
+
+            <!-- Scheduler Status -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600 mb-1">Scheduler</p>
+                        <div class="flex items-center space-x-2">
+                            {% if scheduler_status.running %}
+                            <span class="h-3 w-3 bg-green-500 rounded-full animate-pulse"></span>
+                            <p class="text-2xl font-bold text-green-600">Running</p>
+                            {% else %}
+                            <span class="h-3 w-3 bg-gray-400 rounded-full"></span>
+                            <p class="text-2xl font-bold text-gray-600">Stopped</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-4xl">⚙️</div>
+                </div>
+            </div>
+
+            <!-- Average Confidence -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600 mb-1">Avg Confidence</p>
+                        <p class="text-3xl font-bold text-gray-900">{{ "%.0f"|format(stats.avg_confidence * 100) }}%</p>
+                    </div>
+                    <div class="text-4xl">📊</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Bar -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-4">
+                    <button onclick="processNewEmails()" id="processBtn" class="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow flex items-center space-x-2">
+                        <span>🔄</span>
+                        <span>Process New Emails</span>
+                    </button>
+                    <a href="/debug/processed" target="_blank" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition flex items-center space-x-2">
+                        <span>🔍</span>
+                        <span>View Debug Data</span>
+                    </a>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="autoRefresh" onchange="enableAutoRefresh()" class="h-5 w-5 text-blue-600 rounded">
+                    <label for="autoRefresh" class="text-sm font-medium text-gray-700">Auto-refresh (30s)</label>
+                </div>
+            </div>
+            <div id="processMessage" class="mt-4 hidden"></div>
+        </div>
+
+        <!-- Category Distribution -->
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Category Distribution</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for category_name, data in categories.items() %}
+                <div class="bg-white rounded-lg shadow p-6 border-l-4 border-{{ data.color }}-500">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-3xl">{{ data.emoji }}</span>
+                            <div>
+                                <h3 class="font-bold text-lg text-gray-900">{{ category_name }}</h3>
+                                <p class="text-sm text-gray-600">{{ data.description }}</p>
+                            </div>
+                        </div>
+                        <div class="text-3xl font-bold text-{{ data.color }}-600">{{ data.count }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if stats.total == 0 %}
+        <!-- Empty State -->
+        <div class="bg-white rounded-lg shadow-lg p-12 text-center">
+            <div class="text-6xl mb-6">📭</div>
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">No Emails Processed Yet</h2>
+            <p class="text-gray-600 mb-6 text-lg">
+                Click "Process New Emails" to start classifying your inbox, or wait for the scheduled processor to run automatically.
+            </p>
+            <button onclick="processNewEmails()" class="bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-blue-700 transition shadow-lg">
+                Process Emails Now
+            </button>
+        </div>
+        {% else %}
+        <!-- Email Lists by Category -->
+        {% for category_name, data in categories.items() %}
+        {% if data.count > 0 %}
+        <div class="mb-8">
+            <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                <span>{{ data.emoji }}</span>
+                <span>{{ category_name }} Emails ({{ data.count }})</span>
+            </h2>
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Processed</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for email in data.emails[:10] %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 text-sm text-gray-900">
+                                {% if email.subject|length > 60 %}
+                                {{ email.subject[:60] }}...
+                                {% else %}
+                                {{ email.subject }}
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600">{{ email.from }}</td>
+                            <td class="px-6 py-4 text-sm text-gray-600">
+                                {{ email.timestamp.strftime('%m/%d %I:%M %p') }}
+                            </td>
+                            <td class="px-6 py-4">
+                                {% set conf_pct = (email.confidence * 100)|int %}
+                                {% if conf_pct >= 80 %}
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                    {{ conf_pct }}%
+                                </span>
+                                {% elif conf_pct >= 60 %}
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    {{ conf_pct }}%
+                                </span>
+                                {% else %}
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                    {{ conf_pct }}%
+                                </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if data.count > 10 %}
+                <div class="bg-gray-50 px-6 py-3 text-sm text-gray-600 text-center">
+                    Showing 10 of {{ data.count }} emails
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+
+    </main>
+    {% endif %}
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <p class="text-center text-sm text-gray-600">
+                University of Iowa - Applied AI Email Classifier POC | Phase 6: Web Dashboard
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Process new emails button handler
+        async function processNewEmails() {
+            const btn = document.getElementById('processBtn');
+            const messageDiv = document.getElementById('processMessage');
+
+            // Disable button and show processing state
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.innerHTML = '<span>⏳</span><span>Processing...</span>';
+
+            try {
+                const response = await fetch('/inbox/process-new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Show success message
+                    messageDiv.className = 'mt-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg';
+                    messageDiv.innerHTML = `
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xl">✅</span>
+                            <span class="font-semibold">Success!</span>
+                        </div>
+                        <p class="mt-2">${data.message || 'Emails processed successfully.'}</p>
+                        <p class="text-sm mt-1">Page will reload in 2 seconds...</p>
+                    `;
+                    messageDiv.classList.remove('hidden');
+
+                    // Reload page after 2 seconds
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    // Show error message
+                    messageDiv.className = 'mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg';
+                    messageDiv.innerHTML = `
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xl">❌</span>
+                            <span class="font-semibold">Error</span>
+                        </div>
+                        <p class="mt-2">${data.detail || 'Failed to process emails.'}</p>
+                    `;
+                    messageDiv.classList.remove('hidden');
+
+                    // Re-enable button
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    btn.innerHTML = '<span>🔄</span><span>Process New Emails</span>';
+                }
+            } catch (error) {
+                // Show error message
+                messageDiv.className = 'mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg';
+                messageDiv.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xl">❌</span>
+                        <span class="font-semibold">Error</span>
+                    </div>
+                    <p class="mt-2">Network error: ${error.message}</p>
+                `;
+                messageDiv.classList.remove('hidden');
+
+                // Re-enable button
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                btn.innerHTML = '<span>🔄</span><span>Process New Emails</span>';
+            }
+        }
+
+        // Auto-refresh checkbox handler
+        function enableAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+
+            if (checkbox.checked) {
+                // Set timeout to reload page after 30 seconds
+                setTimeout(() => {
+                    window.location.reload();
+                }, 30000);
+            }
+        }
+
+        // If auto-refresh is enabled, start the timer on page load
+        window.addEventListener('load', () => {
+            const checkbox = document.getElementById('autoRefresh');
+            if (checkbox && checkbox.checked) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 30000);
+            }
+        });
+    </script>
+</body>
+</html>
