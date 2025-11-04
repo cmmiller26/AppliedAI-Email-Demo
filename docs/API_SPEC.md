@@ -177,6 +177,11 @@ Fetches unprocessed emails (received since last check), classifies them using Az
 - First run: Processes all emails in inbox (up to 50)
 - Subsequent runs: Only processes emails received after `lastCheck`
 - Already-processed emails are skipped (even if received after `lastCheck`)
+- **Optimization (Phase 5.1):** Emails with existing classification categories are skipped automatically
+  - Prevents redundant Azure OpenAI API calls after server restart
+  - Checks Outlook categories: `URGENT`, `ACADEMIC`, `ADMINISTRATIVE`, `SOCIAL`, `PROMOTIONAL`, `OTHER`
+  - If found, marks as processed without re-classification
+  - Logs: `"Email <id>... already has category ['URGENT'], skipping classification"`
 - Safe to call multiple times
 
 **Outlook Category Assignment:**

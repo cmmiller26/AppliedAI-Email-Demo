@@ -805,8 +805,41 @@ processed_emails = {}         # Classification results
 last_check_time = None        # Timestamp of last email fetch
 ```
 
+### Deduplication Strategy
+
+The system uses a **two-layer deduplication** approach to prevent reprocessing:
+
+**Layer 1: In-Memory Tracking (Primary)**
+- Uses `processed_emails` dictionary with `internetMessageId` as key
+- Checks: `is_processed(message_id)` before classification
+- **Limitation:** Lost on server restart
+
+**Layer 2: Outlook Category Check (Fallback)**
+- Added in Phase 5.1 (2025-11-04) as optimization
+- Before classifying, checks if email already has a classification category
+- Categories checked: `URGENT`, `ACADEMIC`, `ADMINISTRATIVE`, `SOCIAL`, `PROMOTIONAL`, `OTHER`
+- **Benefit:** Prevents redundant Azure OpenAI API calls after server restart
+- **Implementation:** `src/main.py:982-996`, `src/graph.py:83`
+
+**How it works:**
+```python
+# After server restart, processed_emails = {} (empty)
+# But Outlook categories persist!
+
+for email in fetched_emails:
+    if is_processed(email.internetMessageId):  # Layer 1: In-memory
+        skip
+    elif email.categories contains ["URGENT", "ACADEMIC", ...]:  # Layer 2: Outlook
+        mark_processed(email, existing_category)
+        skip  # No Azure OpenAI call!
+    else:
+        classify_with_azure_openai(email)  # Only truly new emails
+```
+
+**Result:** Server restarts no longer cause re-classification of already-categorized emails.
+
 ### Limitations (POC) - Phase 5 Complete (2025-10-31)
-- **No persistence:** Data lost on restart (in-memory only)
+- **Partial persistence:** In-memory state lost on restart, but Outlook categories provide fallback deduplication
 - **Single-user only:** One token per server instance
 - **No token refresh:** Must re-authenticate after expiry (~1 hour)
 - **Sequential processing:** Emails processed one at a time (~1.5-2.5s per email)

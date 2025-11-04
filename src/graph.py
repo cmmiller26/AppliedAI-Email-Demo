@@ -80,7 +80,7 @@ async def get_messages(
     # $orderby: Sort by most recent first
     # $top/$skip: Pagination parameters
     params = {
-        "$select": "id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId",
+        "$select": "id,subject,from,receivedDateTime,bodyPreview,hasAttachments,internetMessageId,categories",
         "$orderby": "receivedDateTime DESC",
         "$top": str(top),
         "$skip": str(skip)

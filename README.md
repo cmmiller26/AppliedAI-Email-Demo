@@ -251,11 +251,15 @@ Emails are automatically tagged with colored category labels in Outlook:
 - **Cross-platform**: Works in Outlook desktop, web, and mobile
 - **Multi-category support**: One email can have multiple categories
 
-### Idempotency
-- Each email is processed exactly once
-- Uses `internetMessageId` as unique identifier
+### Idempotency & Smart Deduplication
+- Each email is processed exactly once using two-layer approach:
+  - **Layer 1:** In-memory tracking with `internetMessageId` as unique identifier
+  - **Layer 2:** Outlook category check (prevents re-classification after server restart)
 - Safe to run `/inbox/process-new` multiple times
 - Tracks `last_check_time` to only process new emails
+- **Optimization (Phase 5.1):** Already-categorized emails are skipped automatically
+  - Saves Azure OpenAI API calls after server restarts
+  - Uses persistent Outlook categories as fallback deduplication
 
 ## Testing
 

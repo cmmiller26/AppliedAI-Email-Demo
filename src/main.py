@@ -979,6 +979,22 @@ async def process_new_emails_internal(access_token: str) -> dict:
             logger.debug(f"Email already processed: {message_id[:20]}... - skipping")
             continue
 
+        # Check if email already has a classification category assigned in Outlook
+        # This prevents re-classification after server restart (saves Azure OpenAI API calls)
+        existing_categories = msg.get("categories", [])
+        classification_categories = ["URGENT", "ACADEMIC", "ADMINISTRATIVE", "SOCIAL", "PROMOTIONAL", "OTHER"]
+        if any(cat in existing_categories for cat in classification_categories):
+            logger.info(f"Email {message_id[:20]}... already has category {existing_categories}, skipping classification")
+            # Mark as processed to prevent future checks (even though we didn't classify it now)
+            # Extract details for marking
+            subject = msg.get("subject", "No Subject")
+            from_field = msg.get("from", {})
+            from_email = from_field.get("emailAddress", {}).get("address", "unknown")
+            # Find which category it has
+            matched_category = next((cat for cat in classification_categories if cat in existing_categories), "UNKNOWN")
+            mark_processed(message_id, matched_category, 1.0, subject, from_email)
+            continue
+
         unprocessed_messages.append(msg)
 
     logger.info(f"Found {len(unprocessed_messages)} unprocessed emails to classify")
