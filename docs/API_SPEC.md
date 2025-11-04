@@ -190,6 +190,98 @@ Fetches unprocessed emails (received since last check), classifies them using Az
 
 ---
 
+### Scheduler Control
+
+**POST** `/scheduler/start?interval={seconds}`
+
+Starts the background email processing scheduler.
+
+**Query Parameters:**
+- `interval` (integer, optional) - Polling interval in seconds (10-3600)
+  - If not provided, uses `POLLING_INTERVAL` from environment (default: 60)
+  - Minimum: 10 seconds
+  - Maximum: 3600 seconds (1 hour)
+
+**Response:**
+```json
+{
+  "message": "Scheduler started successfully",
+  "interval_seconds": 60,
+  "next_run": "2025-11-04T12:01:00Z"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request` - Invalid interval (< 10 or > 3600)
+- `500 Internal Server Error` - Scheduler initialization failed
+
+**Notes:**
+- Scheduler automatically calls `/inbox/process-new` logic at specified interval
+- Can be called while scheduler is already running to change interval
+- Respects idempotency - won't reprocess same emails
+
+---
+
+**POST** `/scheduler/stop`
+
+Stops the background email processing scheduler.
+
+**Query Parameters:**
+- None
+
+**Response:**
+```json
+{
+  "message": "Scheduler stopped successfully",
+  "status": "stopped"
+}
+```
+
+**Notes:**
+- Scheduler can be restarted later with `/scheduler/start`
+- No emails will be processed automatically while stopped
+- Manual `/inbox/process-new` endpoint still works
+
+---
+
+**GET** `/scheduler/status`
+
+Gets current scheduler status and statistics.
+
+**Query Parameters:**
+- None
+
+**Response:**
+```json
+{
+  "running": true,
+  "interval_seconds": 60,
+  "next_run": "2025-11-04T12:01:00Z",
+  "last_run": "2025-11-04T12:00:00Z",
+  "last_run_result": {
+    "processed": 5,
+    "categories": {
+      "URGENT": 1,
+      "ACADEMIC": 3,
+      "SOCIAL": 1
+    }
+  }
+}
+```
+
+**Fields:**
+- `running` (boolean) - Whether scheduler is currently active
+- `interval_seconds` (integer|null) - Current polling interval
+- `next_run` (string|null) - ISO 8601 timestamp of next scheduled run
+- `last_run` (string|null) - ISO 8601 timestamp of last run
+- `last_run_result` (object|null) - Results from last processing run
+
+**Notes:**
+- Returns status even if scheduler is stopped
+- `last_run_result` includes error details if last run failed
+
+---
+
 ### View Processed Emails (Debug)
 
 **GET** `/debug/processed`

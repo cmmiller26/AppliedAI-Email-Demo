@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from msal import ConfidentialClientApplication
 from src.graph import get_messages, assign_category_to_message
 from src.classifier import classify_email, PRESET_CATEGORIES
+from src import scheduler
 
 # Load environment variables
 load_dotenv()
@@ -837,6 +838,177 @@ async def classify(request: ClassifyRequest):
         )
 
 
+async def process_new_emails_internal(access_token: str) -> dict:
+    """
+    Internal function for processing new emails.
+
+    This function contains the core email processing logic and can be called
+    by both the REST endpoint and the background scheduler.
+
+    Args:
+        access_token: Valid OAuth access token
+
+    Returns:
+        Dict with processing results matching ProcessNewResponse structure
+
+    Raises:
+        Exception: If processing fails (caller should handle)
+    """
+    global last_check_time
+
+    logger.info("Starting batch processing of new emails")
+
+    # Store old last_check_time for response
+    previous_check = last_check_time.isoformat() + "Z" if last_check_time else None
+
+    # Fetch emails from Graph API
+    # On first run, fetch all emails (no filter)
+    # On subsequent runs, only fetch emails newer than last_check_time
+    logger.info(f"Fetching emails (last check: {previous_check or 'never'})")
+
+    try:
+        # Fetch emails - get more than default to process in batches
+        result = await get_messages(
+            access_token=access_token,
+            top=50,  # Fetch up to 50 emails per batch
+            skip=0,
+            folder="inbox"
+        )
+
+        messages = result.get("messages", [])
+        logger.info(f"Fetched {len(messages)} emails from Graph API")
+
+    except Exception as graph_error:
+        logger.error(f"Error fetching messages from Graph API: {str(graph_error)}")
+        raise Exception(f"Failed to fetch emails: {str(graph_error)}")
+
+    # Filter messages to only those received after last_check_time
+    if last_check_time:
+        # Filter by receivedDateTime
+        new_messages = []
+        for msg in messages:
+            received_dt_str = msg.get("receivedDateTime")
+            if received_dt_str:
+                # Parse ISO 8601 datetime
+                from dateutil import parser
+                received_dt = parser.parse(received_dt_str)
+                # Remove timezone info for comparison
+                received_dt_naive = received_dt.replace(tzinfo=None)
+
+                if received_dt_naive > last_check_time:
+                    new_messages.append(msg)
+
+        messages = new_messages
+        logger.info(f"Filtered to {len(messages)} emails received after last check")
+
+    # Filter out already processed emails (idempotency)
+    unprocessed_messages = []
+    for msg in messages:
+        message_id = msg.get("internetMessageId")
+        if not message_id:
+            logger.warning(f"Email missing internetMessageId: {msg.get('id')} - skipping")
+            continue
+
+        if is_processed(message_id):
+            logger.debug(f"Email already processed: {message_id[:20]}... - skipping")
+            continue
+
+        unprocessed_messages.append(msg)
+
+    logger.info(f"Found {len(unprocessed_messages)} unprocessed emails to classify")
+
+    # Process each unprocessed email
+    processed_count = 0
+    category_counts = {}
+    processed_emails_info = []
+
+    for msg in unprocessed_messages:
+        try:
+            # Extract email fields
+            message_id = msg.get("internetMessageId")
+            subject = msg.get("subject", "(No Subject)")
+            body_preview = msg.get("bodyPreview", "")
+            received_dt = msg.get("receivedDateTime")
+            graph_id = msg.get("id")
+
+            # Extract sender email address
+            from_obj = msg.get("from", {})
+            from_email_obj = from_obj.get("emailAddress", {})
+            from_email = from_email_obj.get("address", "unknown@example.com")
+
+            logger.info(f"Classifying email: '{subject[:50]}...' from {from_email}")
+
+            # Classify email
+            classification = classify_email(
+                subject=subject,
+                body=body_preview,
+                from_address=from_email
+            )
+
+            category = classification["category"]
+            confidence = classification["confidence"]
+
+            # Assign Outlook category to the email
+            try:
+                await assign_category_to_message(
+                    access_token=access_token,
+                    message_id=graph_id,
+                    category=category
+                )
+                logger.info(f"Assigned Outlook category '{category}' to email")
+            except Exception as category_error:
+                # Log error but don't fail the whole batch
+                logger.error(f"Failed to assign category to email: {str(category_error)}")
+                # Continue processing - classification still succeeded
+
+            # Mark as processed
+            mark_processed(
+                message_id=message_id,
+                category=category,
+                confidence=confidence,
+                subject=subject,
+                from_email=from_email
+            )
+
+            # Update category counts
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+            # Add to response list
+            processed_emails_info.append({
+                "id": graph_id,
+                "subject": subject,
+                "category": category,
+                "confidence": confidence,
+                "receivedDateTime": received_dt
+            })
+
+            processed_count += 1
+            logger.info(f"Email classified as {category} (confidence: {confidence:.2f})")
+
+        except Exception as classify_error:
+            # Log error but continue processing other emails
+            logger.error(f"Error classifying email {msg.get('id')}: {str(classify_error)}")
+            # Don't raise - continue to next email
+            continue
+
+    # Update last_check_time to now
+    current_time = datetime.utcnow()
+    last_check_time = current_time
+    new_check = current_time.isoformat() + "Z"
+
+    logger.info(f"Batch processing complete: {processed_count} emails processed")
+    logger.info(f"Category distribution: {category_counts}")
+
+    # Return summary
+    return {
+        "processed": processed_count,
+        "lastCheck": previous_check,
+        "newCheck": new_check,
+        "categories": category_counts,
+        "emails": processed_emails_info
+    }
+
+
 @app.post("/inbox/process-new", response_model=ProcessNewResponse)
 async def process_new_emails():
     """
@@ -853,10 +1025,8 @@ async def process_new_emails():
         401 Unauthorized: No valid token (user must authenticate)
         500 Internal Server Error: Graph API or classification failures
     """
-    global last_check_time
-
     try:
-        logger.info("Starting batch processing of new emails")
+        logger.info("Processing new emails via REST endpoint")
 
         # Validate and get access token
         access_token = get_valid_token()
@@ -868,157 +1038,21 @@ async def process_new_emails():
                 detail="Not authenticated. Please visit /auth/login to authenticate with Microsoft."
             )
 
-        # Store old last_check_time for response
-        previous_check = last_check_time.isoformat() + "Z" if last_check_time else None
+        # Call internal processing function
+        result = await process_new_emails_internal(access_token)
 
-        # Fetch emails from Graph API
-        # On first run, fetch all emails (no filter)
-        # On subsequent runs, only fetch emails newer than last_check_time
-        logger.info(f"Fetching emails (last check: {previous_check or 'never'})")
+        # Convert emails list to ProcessedEmailInfo models
+        emails_with_models = [
+            ProcessedEmailInfo(**email) for email in result["emails"]
+        ]
 
-        try:
-            # Fetch emails - get more than default to process in batches
-            result = await get_messages(
-                access_token=access_token,
-                top=50,  # Fetch up to 50 emails per batch
-                skip=0,
-                folder="inbox"
-            )
-
-            messages = result.get("messages", [])
-            logger.info(f"Fetched {len(messages)} emails from Graph API")
-
-        except Exception as graph_error:
-            logger.error(f"Error fetching messages from Graph API: {str(graph_error)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to fetch emails: {str(graph_error)}"
-            )
-
-        # Filter messages to only those received after last_check_time
-        if last_check_time:
-            # Filter by receivedDateTime
-            new_messages = []
-            for msg in messages:
-                received_dt_str = msg.get("receivedDateTime")
-                if received_dt_str:
-                    # Parse ISO 8601 datetime
-                    from dateutil import parser
-                    received_dt = parser.parse(received_dt_str)
-                    # Remove timezone info for comparison
-                    received_dt_naive = received_dt.replace(tzinfo=None)
-
-                    if received_dt_naive > last_check_time:
-                        new_messages.append(msg)
-
-            messages = new_messages
-            logger.info(f"Filtered to {len(messages)} emails received after last check")
-
-        # Filter out already processed emails (idempotency)
-        unprocessed_messages = []
-        for msg in messages:
-            message_id = msg.get("internetMessageId")
-            if not message_id:
-                logger.warning(f"Email missing internetMessageId: {msg.get('id')} - skipping")
-                continue
-
-            if is_processed(message_id):
-                logger.debug(f"Email already processed: {message_id[:20]}... - skipping")
-                continue
-
-            unprocessed_messages.append(msg)
-
-        logger.info(f"Found {len(unprocessed_messages)} unprocessed emails to classify")
-
-        # Process each unprocessed email
-        processed_count = 0
-        category_counts = {}
-        processed_emails_info = []
-
-        for msg in unprocessed_messages:
-            try:
-                # Extract email fields
-                message_id = msg.get("internetMessageId")
-                subject = msg.get("subject", "(No Subject)")
-                body_preview = msg.get("bodyPreview", "")
-                received_dt = msg.get("receivedDateTime")
-                graph_id = msg.get("id")
-
-                # Extract sender email address
-                from_obj = msg.get("from", {})
-                from_email_obj = from_obj.get("emailAddress", {})
-                from_email = from_email_obj.get("address", "unknown@example.com")
-
-                logger.info(f"Classifying email: '{subject[:50]}...' from {from_email}")
-
-                # Classify email
-                classification = classify_email(
-                    subject=subject,
-                    body=body_preview,
-                    from_address=from_email
-                )
-
-                category = classification["category"]
-                confidence = classification["confidence"]
-
-                # Assign Outlook category to the email
-                try:
-                    await assign_category_to_message(
-                        access_token=access_token,
-                        message_id=graph_id,
-                        category=category
-                    )
-                    logger.info(f"Assigned Outlook category '{category}' to email")
-                except Exception as category_error:
-                    # Log error but don't fail the whole batch
-                    logger.error(f"Failed to assign category to email: {str(category_error)}")
-                    # Continue processing - classification still succeeded
-
-                # Mark as processed
-                mark_processed(
-                    message_id=message_id,
-                    category=category,
-                    confidence=confidence,
-                    subject=subject,
-                    from_email=from_email
-                )
-
-                # Update category counts
-                category_counts[category] = category_counts.get(category, 0) + 1
-
-                # Add to response list
-                processed_emails_info.append(ProcessedEmailInfo(
-                    id=graph_id,
-                    subject=subject,
-                    category=category,
-                    confidence=confidence,
-                    receivedDateTime=received_dt
-                ))
-
-                processed_count += 1
-                logger.info(f"Email classified as {category} (confidence: {confidence:.2f})")
-
-            except Exception as classify_error:
-                # Log error but continue processing other emails
-                logger.error(f"Error classifying email {msg.get('id')}: {str(classify_error)}")
-                # Don't raise - continue to next email
-                continue
-
-        # Update last_check_time to now
-        current_time = datetime.utcnow()
-        last_check_time = current_time
-        new_check = current_time.isoformat() + "Z"
-
-        logger.info(f"Batch processing complete: {processed_count} emails processed")
-        logger.info(f"Category distribution: {category_counts}")
-
-        # Return summary
+        # Return as ProcessNewResponse model
         return ProcessNewResponse(
-            processed=processed_count,
-            lastCheck=previous_check,
-            newCheck=new_check,
-            categories=category_counts,
-            emails=processed_emails_info
+            processed=result["processed"],
+            lastCheck=result["lastCheck"],
+            newCheck=result["newCheck"],
+            categories=result["categories"],
+            emails=emails_with_models
         )
 
     except HTTPException:
@@ -1033,6 +1067,129 @@ async def process_new_emails():
         )
 
 
+async def scheduler_processing_wrapper() -> dict:
+    """
+    Wrapper function for scheduler to process emails.
+    Handles token validation and returns results.
+    """
+    # Get valid token
+    access_token = get_valid_token()
+
+    if not access_token:
+        raise Exception("Not authenticated. Token expired or missing.")
+
+    # Process emails
+    return await process_new_emails_internal(access_token)
+
+
+@app.post("/scheduler/start")
+async def start_scheduler_endpoint(
+    interval: int = Query(None, ge=10, le=3600, description="Polling interval in seconds (10-3600)")
+):
+    """
+    Start the background email processing scheduler.
+
+    Args:
+        interval: Optional polling interval in seconds (min 10, max 3600).
+                 If not provided, uses POLLING_INTERVAL env var or default (60s).
+
+    Returns:
+        JSON with scheduler status and configuration
+
+    Example:
+        POST /scheduler/start?interval=30
+    """
+    try:
+        # Use provided interval, or get default from environment/config
+        if interval is None:
+            interval = scheduler.get_default_interval()
+
+        logger.info(f"Starting scheduler with interval={interval}s")
+
+        result = scheduler.start_scheduler(interval_seconds=interval)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"Scheduler started successfully",
+                "interval_seconds": interval,
+                "next_run": result["next_run"]
+            }
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error starting scheduler: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start scheduler: {str(e)}")
+
+
+@app.post("/scheduler/stop")
+async def stop_scheduler_endpoint():
+    """
+    Stop the background email processing scheduler.
+
+    Returns:
+        JSON with success message
+
+    Example:
+        POST /scheduler/stop
+    """
+    try:
+        logger.info("Stopping scheduler")
+
+        result = scheduler.stop_scheduler()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": result["message"],
+                "status": result["status"]
+            }
+        )
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop scheduler: {str(e)}")
+
+
+@app.get("/scheduler/status")
+async def get_scheduler_status_endpoint():
+    """
+    Get current scheduler status and statistics.
+
+    Returns:
+        JSON with scheduler state, interval, next run time, last run info
+
+    Example response:
+        {
+            "running": true,
+            "interval_seconds": 60,
+            "next_run": "2025-11-04T12:01:00Z",
+            "last_run": "2025-11-04T12:00:00Z",
+            "last_run_result": {
+                "processed": 3,
+                "categories": {"URGENT": 1, "ACADEMIC": 2}
+            }
+        }
+    """
+    try:
+        status = scheduler.get_scheduler_status()
+
+        return JSONResponse(
+            status_code=200,
+            content=status
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get scheduler status: {str(e)}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -1043,6 +1200,26 @@ async def startup_event():
     logger.info("=" * 50)
     logger.info(f"Redirect URI: {os.getenv('REDIRECT_URI', 'NOT SET')}")
     logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+
+    # Initialize scheduler
+    try:
+        scheduler.initialize_scheduler(scheduler_processing_wrapper)
+        logger.info("Scheduler initialized successfully")
+
+        # Check if auto-start is enabled (default: yes)
+        auto_start = os.getenv("SCHEDULER_AUTO_START", "true").lower() == "true"
+
+        if auto_start:
+            interval = scheduler.get_default_interval()
+            scheduler.start_scheduler(interval_seconds=interval)
+            logger.info(f"Scheduler auto-started with interval={interval}s")
+        else:
+            logger.info("Scheduler auto-start disabled (use POST /scheduler/start to enable)")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize scheduler: {str(e)}")
+        logger.warning("Application will continue without scheduler")
+
     logger.info("Server ready to accept requests")
 
 
@@ -1052,6 +1229,13 @@ async def shutdown_event():
     Run on application shutdown
     """
     logger.info("Email Sorting POC shutting down...")
+
+    # Shutdown scheduler gracefully
+    try:
+        scheduler.shutdown_scheduler()
+    except Exception as e:
+        logger.error(f"Error shutting down scheduler: {str(e)}")
+
     logger.info(f"Total tokens stored: {len(user_tokens)}")
     logger.info(f"Total emails processed: {len(processed_emails)}")
 

@@ -10,6 +10,7 @@ Complete guide for testing the email classification system using Azure OpenAI Se
 - [Testing Strategy](#testing-strategy)
 - [Using the Test Email Script](#using-the-test-email-script)
 - [Testing Workflow](#testing-workflow)
+- [Scheduler Testing](#scheduler-testing)
 - [Command Reference](#command-reference)
 - [Troubleshooting](#troubleshooting)
 
@@ -587,6 +588,320 @@ asyncio.run(main())
 
 ---
 
+## Scheduler Testing
+
+### Overview
+
+The scheduled polling feature automatically processes new emails every 60 seconds (by default). This section covers testing the background scheduler functionality.
+
+### What Is the Scheduler?
+
+The scheduler (`src/scheduler.py`) is a background job that:
+- Runs email processing at configurable intervals (10-3600 seconds)
+- Handles errors gracefully without crashing the app
+- Provides status tracking (last run, next run, results)
+- Can be controlled via REST API endpoints
+
+### Scheduler Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `POST /scheduler/start?interval=60` | POST | Start/restart scheduler with custom interval |
+| `POST /scheduler/stop` | POST | Stop the scheduler |
+| `GET /scheduler/status` | GET | Get scheduler status and statistics |
+
+### Scheduler Configuration
+
+Add to `.env` file to configure scheduler behavior:
+
+```bash
+# Polling interval in seconds (default: 60)
+POLLING_INTERVAL=60
+
+# Auto-start scheduler on app startup (default: true)
+SCHEDULER_AUTO_START=true
+```
+
+### Scheduler Test Suite
+
+#### Test 1: Basic Scheduler Startup
+
+**Objective**: Verify scheduler starts automatically when app launches.
+
+```bash
+# Start the app
+python -m uvicorn src.main:app --reload
+```
+
+**Expected logs**:
+```
+INFO: [Scheduler] Started - processing every 60s
+INFO: Scheduler auto-started with interval=60s
+```
+
+**Check status**:
+```bash
+curl http://localhost:8000/scheduler/status
+```
+
+**Expected response**:
+```json
+{
+  "running": true,
+  "interval_seconds": 60,
+  "next_run": "2025-11-04T12:01:00Z",
+  "last_run": null
+}
+```
+
+✅ **Pass**: Scheduler starts automatically and reports running status.
+
+---
+
+#### Test 2: Automatic Email Processing
+
+**Objective**: Verify scheduler processes emails automatically.
+
+1. Ensure you're authenticated
+2. Watch logs for automatic processing every 60 seconds
+
+**Expected logs after 60 seconds**:
+```
+INFO: [Scheduler] Processing new emails...
+INFO: Starting batch processing of new emails
+INFO: Fetched 10 emails from Graph API
+INFO: [Scheduler] Processed 5 emails: URGENT=1, ACADEMIC=3, SOCIAL=1
+```
+
+**If no new emails**:
+```
+INFO: [Scheduler] Processing new emails...
+INFO: [Scheduler] No new emails to process
+```
+
+✅ **Pass**: Scheduler automatically processes emails every 60 seconds.
+
+---
+
+#### Test 3: Manual Endpoint Compatibility
+
+**Objective**: Verify `/inbox/process-new` endpoint works alongside scheduler.
+
+```bash
+curl -X POST http://localhost:8000/inbox/process-new
+```
+
+**Expected**: Same emails won't be processed twice due to idempotency.
+
+✅ **Pass**: Manual endpoint works correctly and respects idempotency.
+
+---
+
+#### Test 4: Stop Scheduler
+
+**Objective**: Verify scheduler can be stopped via API.
+
+```bash
+# Stop scheduler
+curl -X POST http://localhost:8000/scheduler/stop
+```
+
+**Expected response**:
+```json
+{
+  "message": "Scheduler stopped successfully",
+  "status": "stopped"
+}
+```
+
+**Verify**: Wait 60+ seconds - no automatic processing should occur.
+
+```bash
+# Check status
+curl http://localhost:8000/scheduler/status
+```
+
+**Expected**:
+```json
+{
+  "running": false,
+  "interval_seconds": null,
+  "next_run": null,
+  "last_run": "2025-11-04T12:00:00Z"
+}
+```
+
+✅ **Pass**: Scheduler stops and no longer processes emails.
+
+---
+
+#### Test 5: Restart with Custom Interval
+
+**Objective**: Verify scheduler can be restarted with different interval.
+
+```bash
+# Start with 30-second interval
+curl -X POST "http://localhost:8000/scheduler/start?interval=30"
+```
+
+**Expected response**:
+```json
+{
+  "message": "Scheduler started successfully",
+  "interval_seconds": 30,
+  "next_run": "2025-11-04T12:00:30Z"
+}
+```
+
+**Verify**: Processing should occur every 30 seconds.
+
+✅ **Pass**: Scheduler restarts with custom interval.
+
+---
+
+#### Test 6: Minimum Interval Enforcement
+
+**Objective**: Verify scheduler rejects intervals below 10 seconds.
+
+```bash
+# Try 5-second interval
+curl -X POST "http://localhost:8000/scheduler/start?interval=5"
+```
+
+**Expected response** (400 Bad Request):
+```json
+{
+  "detail": "Interval must be at least 10 seconds"
+}
+```
+
+✅ **Pass**: Minimum interval is enforced.
+
+---
+
+#### Test 7: Error Handling (Token Expired)
+
+**Objective**: Verify scheduler handles authentication errors gracefully.
+
+**Simulation**: Let access token expire (~1 hour).
+
+**Expected logs**:
+```
+INFO: [Scheduler] Processing new emails...
+WARNING: No token found for demo_user
+ERROR: [Scheduler] Error during processing: Not authenticated. Token expired or missing.
+WARNING: [Scheduler] Token expired or missing, skipping processing
+```
+
+**Verify**: Scheduler continues running (doesn't crash).
+
+After re-authenticating via `/auth/login`, next scheduler run should succeed.
+
+✅ **Pass**: Scheduler handles token expiration gracefully without crashing.
+
+---
+
+#### Test 8: Environment Variable Configuration
+
+**Objective**: Verify scheduler respects environment variables.
+
+1. Stop the app (Ctrl+C)
+
+2. Add to `.env`:
+   ```bash
+   POLLING_INTERVAL=45
+   SCHEDULER_AUTO_START=false
+   ```
+
+3. Restart the app
+
+**Expected log**:
+```
+INFO: Scheduler initialized successfully
+INFO: Scheduler auto-start disabled (use POST /scheduler/start to enable)
+```
+
+4. Verify scheduler NOT running:
+   ```bash
+   curl http://localhost:8000/scheduler/status
+   ```
+   Expected: `"running": false`
+
+5. Manually start (should use 45s interval):
+   ```bash
+   curl -X POST http://localhost:8000/scheduler/start
+   ```
+   Expected: `"interval_seconds": 45`
+
+✅ **Pass**: Environment variables control scheduler behavior.
+
+---
+
+#### Test 9: App Shutdown
+
+**Objective**: Verify scheduler shuts down gracefully.
+
+1. With scheduler running, stop the app (Ctrl+C)
+
+**Expected log**:
+```
+INFO: Email Sorting POC shutting down...
+INFO: [Scheduler] Shutting down scheduler...
+INFO: [Scheduler] Shutdown complete
+```
+
+✅ **Pass**: Scheduler shuts down cleanly without errors.
+
+---
+
+### Scheduler Troubleshooting
+
+#### Issue: Scheduler doesn't start on app startup
+
+**Solution**: Check environment variables. Set `SCHEDULER_AUTO_START=true` in `.env`
+
+#### Issue: "Scheduler not initialized" error
+
+**Solution**: Check logs for error messages. Ensure APScheduler is installed:
+```bash
+pip install -r requirements.txt
+```
+
+#### Issue: Processing runs but no emails classified
+
+**Solution**:
+1. Verify authentication: `curl http://localhost:8000/` shows `"authenticated": true`
+2. Verify emails exist: `curl "http://localhost:8000/graph/fetch?top=10"`
+3. Check if already processed: `curl "http://localhost:8000/debug/processed"`
+
+#### Issue: Duplicate processing of same emails
+
+**Solution**: This shouldn't happen due to idempotency. If it does:
+1. Check that `internetMessageId` is present in emails
+2. Verify `processed_emails` dict is not being cleared
+
+#### Issue: Scheduler runs too frequently
+
+**Solution**:
+1. Check interval: `curl http://localhost:8000/scheduler/status`
+2. Restart with correct interval: `curl -X POST "http://localhost:8000/scheduler/start?interval=60"`
+
+### Scheduler Test Summary
+
+All 9 tests should pass if the scheduler is working correctly:
+
+✅ Auto-starts on app startup (configurable)
+✅ Processes emails automatically at configured intervals
+✅ Doesn't interfere with manual processing
+✅ Can be stopped and restarted dynamically
+✅ Enforces minimum 10-second interval
+✅ Handles authentication errors gracefully
+✅ Respects environment variables
+✅ Shuts down cleanly on app shutdown
+✅ Provides detailed status information
+
+---
+
 ## Future Enhancements
 
 - [ ] Cleanup script to delete all test drafts
@@ -596,3 +911,4 @@ asyncio.run(main())
 - [ ] Attachment support
 - [ ] Batch sending via single API call
 - [ ] Auto-refresh token when expired
+- [ ] Scheduler metrics and monitoring dashboard

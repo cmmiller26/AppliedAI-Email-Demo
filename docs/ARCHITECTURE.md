@@ -55,7 +55,8 @@
 **Key Modules:**
 - `src/main.py` - Main application entry point
 - `src/graph.py` - Microsoft Graph API integration
-- `src/classifier.py` - Azure OpenAI classification logic (future)
+- `src/classifier.py` - Azure OpenAI classification logic
+- `src/scheduler.py` - Background email processing scheduler
 - `templates/` - HTML templates for dashboard (future)
 
 **Dependencies:**
@@ -294,6 +295,87 @@ def mark_processed(message_id: str, category: str, confidence: float):
         "confidence": confidence,
         "timestamp": datetime.utcnow()
     }
+```
+
+---
+
+### 6. Background Scheduler (`src/scheduler.py`)
+
+The scheduler provides automatic email processing at configurable intervals using APScheduler.
+
+**Architecture:**
+```
+┌───────────────────────────────────────────────────────┐
+│              FastAPI Application                      │
+│                                                       │
+│  ┌─────────────────────────────────────────────────┐  │
+│  │         APScheduler (Background Thread)         │  │
+│  │                                                 │  │
+│  │  ┌───────────────────────────────────────────┐  │  │
+│  │  │    IntervalTrigger (every 60s)            │  │  │
+│  │  │                                           │  │  │
+│  │  │   Calls process_new_emails_internal()     │  │  │
+│  │  │                  ↓                        │  │  │
+│  │  │   ┌─────────────────────────────────┐     │  │  │
+│  │  │   │  1. Get valid access token      │     │  │  │
+│  │  │   │  2. Fetch new emails            │     │  │  │
+│  │  │   │  3. Filter unprocessed emails   │     │  │  │
+│  │  │   │  4. Classify with Azure OpenAI  │     │  │  │
+│  │  │   │  5. Assign Outlook categories   │     │  │  │
+│  │  │   │  6. Mark as processed           │     │  │  │
+│  │  │   └─────────────────────────────────┘     │  │  │
+│  │  └───────────────────────────────────────────┘  │  │
+│  │                                                 │  │
+│  │  Control via REST API:                          │  │
+│  │  • POST /scheduler/start?interval=60            │  │
+│  │  • POST /scheduler/stop                         │  │
+│  │  • GET  /scheduler/status                       │  │
+│  └─────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- **Auto-start**: Scheduler starts automatically on app startup (configurable via `SCHEDULER_AUTO_START`)
+- **Configurable interval**: 10-3600 seconds (default: 60s via `POLLING_INTERVAL`)
+- **Error handling**: Gracefully handles token expiration, API errors without crashing
+- **Idempotency**: Respects `internetMessageId` tracking - never processes same email twice
+- **Status tracking**: Tracks last run time, next run time, and results
+- **Dynamic control**: Start/stop/reconfigure without restarting app
+
+**Scheduler Configuration:**
+```python
+# Environment variables
+POLLING_INTERVAL=60           # Interval in seconds (default: 60)
+SCHEDULER_AUTO_START=true     # Auto-start on app startup (default: true)
+```
+
+**Error Handling Strategy:**
+```python
+async def _job_wrapper():
+    try:
+        # Process emails
+        result = await processing_function()
+        logger.info(f"[Scheduler] Processed {result['processed']} emails")
+    except Exception as e:
+        logger.error(f"[Scheduler] Error: {e}")
+        # Don't crash - continue scheduling
+        if "Token expired" in str(e):
+            logger.warning("[Scheduler] Skipping due to expired token")
+```
+
+**Integration with Main App:**
+```python
+# Startup
+@app.on_event("startup")
+async def startup_event():
+    scheduler.initialize_scheduler(scheduler_processing_wrapper)
+    if os.getenv("SCHEDULER_AUTO_START", "true") == "true":
+        scheduler.start_scheduler(interval_seconds=60)
+
+# Shutdown
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown_scheduler()
 ```
 
 ---
