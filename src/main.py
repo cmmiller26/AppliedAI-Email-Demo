@@ -1,6 +1,8 @@
 """
 Email Sorting POC - FastAPI Application
 Main application entry point
+
+Uses Azure AI Foundry with Azure OpenAI for email classification.
 """
 
 from fastapi import FastAPI, HTTPException, Query
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Email Sorting POC",
-    description="Automated email classification using Microsoft Graph and OpenAI",
+    description="Automated email classification using Microsoft Graph and Azure AI Foundry with Azure OpenAI",
     version="0.1.0"
 )
 
@@ -756,7 +758,7 @@ async def graph_fetch(
 @app.post("/classify", response_model=ClassifyResponse)
 async def classify(request: ClassifyRequest):
     """
-    Classify an email using Azure OpenAI Service
+    Classify an email using Azure OpenAI via Azure AI Foundry
 
     Analyzes email content (subject, body, sender) and categorizes it into one of
     the preset categories: URGENT, ACADEMIC, ADMINISTRATIVE, SOCIAL, PROMOTIONAL, or OTHER.
@@ -769,7 +771,7 @@ async def classify(request: ClassifyRequest):
 
     Error Responses:
         400 Bad Request: Missing or invalid required fields (subject, body, from)
-        500 Internal Server Error: Azure OpenAI Service failure or classification error
+        500 Internal Server Error: Azure OpenAI API failure or classification error
     """
     try:
         logger.info(f"Classification requested for email: '{request.subject[:50]}...'")
@@ -842,7 +844,7 @@ async def process_new_emails():
 
     Retrieves emails received since the last processing run (or all emails on first run),
     filters out already-processed emails using internetMessageId for idempotency,
-    classifies each new email with Azure OpenAI, and stores the results.
+    classifies each new email with Azure OpenAI via Azure AI Foundry, and stores the results.
 
     Returns:
         ProcessNewResponse with processing summary and classified emails

@@ -515,7 +515,7 @@ curl -s http://localhost:8000/debug/token | grep scopes
 python tests/send_test_emails.py --token "$TOKEN"
 
 # Not from tests directory
-cd /path/to/appliedai-demo
+cd /path/to/appliedai-email-classifier-poc
 python tests/send_test_emails.py --token "$TOKEN"
 ```
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines how emails are classified using Azure OpenAI Service with GPT models. The system uses preset categories for the POC with an extensible design for future user-defined categories.
+This document defines how emails are classified using Azure AI Foundry with Azure OpenAI Service and GPT models. The system uses preset categories for the POC with an extensible design for future user-defined categories.
 
 ---
 
@@ -100,11 +100,13 @@ This document defines how emails are classified using Azure OpenAI Service with 
 
 ---
 
-## Azure OpenAI Configuration
+## Azure AI Foundry / OpenAI Configuration
+
+This project uses Azure AI Foundry with a connected Azure OpenAI Service for enhanced monitoring, evaluation, and management capabilities.
 
 ### Model Selection
 ```python
-# Using Azure OpenAI Service deployment
+# Using Azure OpenAI deployment via AI Foundry
 DEPLOYMENT_NAME = "gpt-4o-mini"  # Cost-effective, fast, good accuracy
 # Alternative: Deploy "gpt-4o" for higher accuracy (more expensive)
 ```
@@ -186,7 +188,7 @@ def classify_email(
     model: str = "gpt-4o-mini"     # Azure OpenAI deployment name
 ) -> dict:
     """
-    Classifies an email using Azure OpenAI Service.
+    Classifies an email using Azure OpenAI Service via Azure AI Foundry.
 
     Returns:
         {
@@ -199,7 +201,7 @@ def classify_email(
 
 ### Error Handling
 ```python
-# If Azure OpenAI Service fails
+# If Azure OpenAI API fails
 {
     "category": "OTHER",
     "confidence": 0.0,
@@ -231,10 +233,11 @@ FALLBACK_KEYWORDS = {
 ## Cost Estimation (POC)
 
 ### Azure OpenAI Pricing (gpt-4o-mini)
-- Hosted on Azure OpenAI Service
+- Hosted on Azure AI Foundry with Azure OpenAI Service
 - Input: $0.15 / 1M tokens
 - Output: $0.60 / 1M tokens
 - May be covered by university Azure credits
+- Same pricing as direct Azure OpenAI (no AI Foundry premium)
 
 ### Per Email Cost
 - Average email: ~300 tokens input, ~50 tokens output

@@ -104,7 +104,7 @@ Fetches emails from Microsoft Graph API using stored access token.
 
 **POST** `/classify`
 
-Classifies a single email using Azure OpenAI Service.
+Classifies a single email using Azure OpenAI via Azure AI Foundry.
 
 **Request Body:**
 ```json
@@ -131,7 +131,7 @@ Classifies a single email using Azure OpenAI Service.
 
 **Error Responses:**
 - `400 Bad Request` - Missing required fields
-- `500 Internal Server Error` - Azure OpenAI Service failure
+- `500 Internal Server Error` - Azure OpenAI API failure
 
 ---
 
@@ -139,7 +139,7 @@ Classifies a single email using Azure OpenAI Service.
 
 **POST** `/inbox/process-new`
 
-Fetches unprocessed emails (received since last check), classifies them using Azure OpenAI, assigns Outlook categories, and stores results.
+Fetches unprocessed emails (received since last check), classifies them using Azure OpenAI via Azure AI Foundry, assigns Outlook categories, and stores results.
 
 **Features:**
 - Ensures idempotency using `internetMessageId` (same email never processed twice)
@@ -281,19 +281,54 @@ Simple HTML dashboard showing classification results.
 
 ## Authentication & Authorization
 
-### Token Storage (POC)
-- In-memory dictionary: `{user_id: {access_token, refresh_token, expires_at}}`
-- Tokens cleared on server restart
-- Production will use Azure Key Vault or encrypted database
+### Azure App Registration
+
+The API uses OAuth 2.0 with Azure App Registration for authentication.
+
+**App Registration Details:**
+- Name: `app-appliedai-classifier-poc`
+- Tenant: Single tenant (University of Iowa)
+- Client Secret: `poc-local-dev` (24-month expiration)
+
+### Token Management
+
+#### Token Storage (POC)
+Tokens are stored in server memory:
+```python
+user_tokens = {
+    "demo_user": {
+        "access_token": "eyJ0eXAi...",
+        "refresh_token": "0.AXsA...",
+        "expires_at": 1698509234
+    }
+}
+```
+
+#### Token Expiration
+- Access tokens expire after **~1 hour**
+- Refresh tokens valid for **90 days**
+- POC: Manual re-authentication when expired
+- Production: Automatic refresh using refresh token
+
+### API Scopes
+
+| Scope | Purpose | Required |
+|-------|---------|----------|
+| `Mail.Read` | Read user's emails | Yes |
+| `Mail.ReadWrite` | Assign Outlook categories | Yes |
+| `offline_access` | Refresh token support | Yes |
 
 ### Token Refresh
 - Not implemented in POC
 - On 401 from Graph API, redirect to `/auth/login`
+- Phase 8 will implement automatic refresh using refresh_token
 
 ### Security Notes
-- State parameter validates OAuth callback
+- State parameter validates OAuth callback (CSRF protection)
 - No session management in POC (single-user demo)
 - HTTPS required in production
+- Client secret stored in `.env` (gitignored)
+- Production: Use Azure Key Vault for secrets
 
 ---
 

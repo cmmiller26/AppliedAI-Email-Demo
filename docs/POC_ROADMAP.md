@@ -22,7 +22,7 @@
 - [x] Review existing code
 - [x] Verify all environment variables in `.env`
 - [x] Test OAuth authentication
-- [x] Confirm Azure OpenAI Service credentials are valid
+- [x] Confirm Azure OpenAI credentials are valid (now via AI Foundry)
 
 ### Initial FastAPI App
 - [x] Create `src/main.py` with FastAPI initialization
@@ -35,17 +35,29 @@
 
 ---
 
-## Phase 2: OAuth Authentication (Day 2-3)
+## Phase 2: OAuth Authentication (Day 2-3) ✅ COMPLETED
 
 ### Environment Configuration
+- [x] Create Azure App Registration: `app-appliedai-classifier-poc`
+- [x] Configure single tenant authentication
 - [x] Add `REDIRECT_URI` to `.env`
 - [x] Update Azure app registration redirect URIs in Entra ID portal
+- [x] Create client secret: `poc-local-dev` (24-month expiration)
+- [x] Configure API permissions (Mail.Read, Mail.ReadWrite, offline_access)
 - [x] Document redirect URI changes in README
 
-### ConfidentialClientApplication Setup
+### Client Secret Management
+- [x] Store secret in `.env` file (gitignored)
+- [x] Document secret description: `poc-local-dev`
+- [x] Set calendar reminder for rotation (expires in 24 months)
+- [ ] **Phase 8**: Migrate to Azure Key Vault
+
+### OAuth Implementation
 - [x] Import MSAL `ConfidentialClientApplication`
 - [x] Create auth configuration from environment variables
 - [x] Add global dict for token storage: `user_tokens = {}`
+- [x] Implement state parameter for CSRF protection
+- [x] Store tokens server-side (not in cookies)
 
 ### /auth/login Endpoint
 - [x] Generate auth URL with MSAL
@@ -112,11 +124,12 @@
 
 ## Phase 4: Azure OpenAI Classification (Day 4-5)
 
-### Azure OpenAI Setup
+### Azure AI Foundry / OpenAI Setup
 - [x] Install/verify OpenAI Python SDK (with Azure support)
 - [x] Create `src/classifier.py` module (future)
-- [x] Add Azure OpenAI client initialization
+- [x] Add Azure OpenAI client initialization (compatible with AI Foundry)
 - [x] Define preset categories list
+- [x] **Migrated to Azure AI Foundry (2025-11-04)**
 
 ### Prompt Engineering
 - [ ] Implement system prompt from CLASSIFICATION_SPEC.md
@@ -152,6 +165,13 @@
 ---
 
 ## Phase 5: Automated Processing (Day 5-6) ✅ COMPLETED 2025-10-31
+
+### Azure AI Foundry Migration
+- [x] Created AI Foundry Hub (aih-appliedai-classifier-poc)
+- [x] Created AI Foundry Project (aip-appliedai-classifier-poc)
+- [x] Deployed gpt-4o-mini model
+- [x] Updated all documentation to reflect AI Foundry integration
+- [x] Verified code compatibility (no changes needed!)
 
 ### Storage Layer (In-Memory)
 - [x] Create `processed_emails` dict: `{message_id: {category, timestamp, confidence, subject, from}}`
@@ -279,6 +299,13 @@
 - [ ] Implement batch job submission
 - [ ] Add status polling or webhook handlers
 - [ ] Process 1000+ emails cost-effectively
+
+### Azure AI Foundry Advanced Features
+- [ ] Implement Prompt Flow for classification pipeline
+- [ ] Set up evaluation datasets for accuracy testing
+- [ ] Configure monitoring dashboards in AI Foundry
+- [ ] Enable content safety filters
+- [ ] Create A/B testing experiments for prompt optimization
 
 ### Persistent Storage
 - [ ] Choose storage solution (Azure SQL, Table Storage, or Redis)

@@ -33,11 +33,11 @@
        │                     │
        │                     │
        ▼                     ▼
-┌──────────────┐      ┌──────────────┐
-│  Microsoft   │      │ Azure OpenAI │
-│  Graph API   │      │   Service    │
-│ (Entra ID)   │      │  (GPT-4o)    │
-└──────────────┘      └──────────────┘
+┌──────────────┐      ┌──────────────────────┐
+│  Microsoft   │      │ Azure AI Foundry     │
+│  Graph API   │      │ (Azure OpenAI)       │
+│ (Entra ID)   │      │  (GPT-4o-mini)       │
+└──────────────┘      └──────────────────────┘
 ```
 
 ---
@@ -220,10 +220,11 @@ FastAPI         Classifier Module      OpenAI API       Response
    ├──────────────────────────────────────────────────────►│
 ```
 
-**Azure OpenAI Request:**
+**Azure OpenAI Request (via AI Foundry):**
 ```python
 from openai import AzureOpenAI
 
+# Initialize client - works with AI Foundry (no code changes needed!)
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_KEY"),
     api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
@@ -294,6 +295,192 @@ def mark_processed(message_id: str, category: str, confidence: float):
         "timestamp": datetime.utcnow()
     }
 ```
+
+---
+
+## Azure AI Foundry Integration
+
+### Overview
+
+This project uses **Azure AI Foundry** (formerly Azure AI Studio) as the centralized platform for AI operations. Azure AI Foundry provides a unified hub for managing Azure OpenAI deployments along with additional features like monitoring, evaluation, and Prompt Flow.
+
+### Why Azure AI Foundry?
+
+Microsoft recommends Azure AI Foundry for building production AI applications because it provides:
+
+1. **Unified Management**: Hub → Project → Resources hierarchy for better organization
+2. **Built-in Monitoring**: Track token usage, performance, latency, and costs
+3. **Evaluation Tools**: Test model accuracy with datasets
+4. **Prompt Flow**: Visual designer for complex AI workflows (future use)
+5. **Model Catalog**: Easy access to multiple AI models
+6. **Content Safety**: Built-in filtering and moderation tools
+7. **Better Cost Visibility**: Track spending across projects
+
+### Current Configuration
+
+```
+┌─────────────────────────────────────────┐
+│      Azure AI Foundry Hub               │
+│  (aih-appliedai-classifier-poc)         │
+│           Region: North Central US      │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │   Azure AI Foundry Project        │  │
+│  │  (aip-appliedai-classifier-poc)   │  │
+│  │                                   │  │
+│  │  Connected Resources:             │  │
+│  │  • Azure OpenAI Service           │  │
+│  │  • Monitoring & Evaluation        │  │
+│  │  • Prompt Flow (optional)         │  │
+│  └───────────────────────────────────┘  │
+└──────────┬──────────────────────────────┘
+           │
+           ▼
+    ┌─────────────────┐
+    │   FastAPI App   │
+    │   (Your Code)   │
+    └─────────────────┘
+```
+
+**Resources:**
+- **Hub**: `aih-appliedai-classifier-poc` (North Central US)
+- **Project**: `aip-appliedai-classifier-poc`
+- **Model Deployment**: `gpt-4o-mini`
+
+### Code Compatibility
+
+✅ **No code changes needed!** The existing `openai` Python SDK works seamlessly with AI Foundry.
+
+The Azure OpenAI endpoint provided by AI Foundry uses the same API format:
+
+```python
+# This code works with both direct Azure OpenAI and AI Foundry
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")  # Points to AI Foundry's OpenAI resource
+)
+```
+
+### Benefits Over Direct Azure OpenAI
+
+| Feature | Direct Azure OpenAI | Azure AI Foundry |
+|---------|-------------------|------------------|
+| Model Deployment | ✅ | ✅ |
+| Token Usage Tracking | Basic | Advanced with dashboards |
+| Evaluation Datasets | ❌ | ✅ Built-in |
+| Prompt Flow | ❌ | ✅ Visual designer |
+| Content Safety | Manual setup | ✅ Built-in |
+| Multi-model Management | Separate resources | ✅ Unified catalog |
+| Cost Tracking | Azure billing only | ✅ Project-level insights |
+| A/B Testing | Manual | ✅ Built-in tools |
+
+### Future Enhancements (Phase 7-8)
+
+#### 1. Prompt Flow Integration
+Use visual designer to build and test classification pipelines without code.
+
+#### 2. Evaluation Datasets
+Create test sets to measure classification accuracy over time:
+- Upload labeled test emails
+- Run batch evaluations
+- Track accuracy metrics
+- Compare prompt variations
+
+#### 3. A/B Testing
+Compare different prompts or models to optimize performance:
+- Test multiple system prompts
+- Compare GPT-4o vs GPT-4o-mini
+- Measure accuracy and cost trade-offs
+
+#### 4. Content Safety
+Apply filters to detect inappropriate content in emails:
+- Profanity detection
+- Harassment identification
+- PII detection and redaction
+
+#### 5. Advanced Monitoring
+Set up alerts for:
+- High latency (>3s per classification)
+- Error rate spikes
+- Unusual token usage patterns
+- Budget thresholds
+
+---
+
+## Authentication Architecture
+
+### Azure App Registration
+
+**Resource Name**: `app-appliedai-classifier-poc`
+
+The application uses Azure App Registration (Microsoft Entra ID) for OAuth 2.0 authentication.
+
+#### Configuration Details
+
+| Setting | Value |
+|---------|-------|
+| Name | `app-appliedai-classifier-poc` |
+| Account Types | Single tenant (University of Iowa only) |
+| Redirect URI | `http://localhost:8000/auth/callback` (POC) |
+| Client Secret | Description: `poc-local-dev`, Expires: 24 months |
+
+#### API Permissions (Microsoft Graph)
+
+| Permission | Type | Purpose |
+|------------|------|---------|
+| `Mail.Read` | Delegated | Read user's email messages |
+| `Mail.ReadWrite` | Delegated | Assign Outlook categories to emails |
+| `offline_access` | Delegated | Refresh tokens for persistent access |
+
+#### OAuth 2.0 Flow
+
+```
+User → Login → Microsoft Entra ID → Authorization
+                                    ↓
+                              Code Exchange
+                                    ↓
+                            Access Token + Refresh Token
+                                    ↓
+                        Stored in server memory (POC)
+```
+
+### Client Secret Management
+
+#### POC Strategy (Current)
+```
+Storage:      .env file (local, gitignored)
+Description:  poc-local-dev
+Expiration:   24 months
+Rotation:     Manual (calendar reminder)
+Access:       Single developer
+```
+
+#### Production Strategy (Phase 8)
+```
+Storage:      Azure Key Vault
+Description:  prod-{environment}
+Expiration:   6 months (enforced)
+Rotation:     Automated with Azure Functions
+Access:       App Service managed identity
+```
+
+### Security Considerations
+
+1. **POC Environment:**
+   - ✅ OAuth state parameter prevents CSRF
+   - ✅ Tokens stored server-side (not in cookies)
+   - ✅ Single tenant (University directory only)
+   - ⚠️ No token encryption at rest (acceptable for POC)
+   - ⚠️ No automatic token refresh (must re-authenticate)
+
+2. **Production Requirements (Phase 8):**
+   - Use Azure Key Vault for secrets
+   - Implement automatic token refresh
+   - Enable audit logging
+   - Configure network restrictions
+   - Comply with IT-15 policy
+   - Add multi-factor authentication
 
 ---
 
@@ -659,7 +846,8 @@ logger.error(f"Graph API error: {error}")
 | **ASGI Server** | Uvicorn + Gunicorn | Production server |
 | **Authentication** | MSAL Python | OAuth 2.0 flows |
 | **HTTP Client** | httpx | Graph API calls |
-| **AI/ML** | Azure OpenAI Service | Email classification with GPT-4o-mini |
+| **AI Platform** | Azure AI Foundry | Centralized AI management, monitoring, evaluation |
+| **AI Model** | Azure OpenAI Service (GPT-4o-mini) | Email classification via AI Foundry |
 | **Templates** | Jinja2 | HTML rendering |
 | **Configuration** | python-dotenv | Environment variables |
 | **Hosting** | Azure App Service | Cloud deployment (future) |
@@ -771,8 +959,8 @@ User → Login URL → Microsoft Sign-In → Callback with code → Exchange for
 **Microsoft Graph API:**
 RESTful API for accessing Microsoft 365 data (emails, calendar, etc.)
 
-**Azure OpenAI Classification:**
-Few-shot learning with GPT-4o-mini to categorize emails based on content, hosted on Azure OpenAI Service
+**Azure AI Foundry Classification:**
+Few-shot learning with GPT-4o-mini to categorize emails based on content, hosted on Azure AI Foundry with Azure OpenAI Service
 
 **Idempotency:**
 Ensuring same email is not processed multiple times using `internetMessageId`

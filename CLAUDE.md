@@ -6,7 +6,7 @@ Build a secure, policy-compliant email automation service:
 
 - Authenticate via Microsoft Entra ID (OAuth), never HawkID passwords
 - Read mail via Microsoft Graph
-- Classify messages with Azure OpenAI
+- Classify messages with Azure AI Foundry (Azure OpenAI)
 - Host on Azure App Service (Python 3.12, Linux), later enabling webhook or polling behavior
 
 ## Non-Negotiables
@@ -33,21 +33,38 @@ Build a secure, policy-compliant email automation service:
 - **Framework**: FastAPI + Uvicorn + Gunicorn
 - **Auth**: MSAL for Python (`PublicClientApplication` for local, `ConfidentialClientApplication` for web)
 - **HTTP Client**: httpx for Graph API calls
-- **AI**: Azure OpenAI Service (gpt-4o-mini)
+- **AI Platform**: Azure AI Foundry (formerly Azure AI Studio)
+- **AI Model**: Azure OpenAI Service (gpt-4o-mini) via AI Foundry
 - **Scheduling** (Optional): APScheduler for polling
 
 ## Environment Variables
 
-| Name | Purpose |
-|------|---------|
-| `CLIENT_ID` | Azure Entra app client ID |
-| `TENANT_ID` | Azure tenant ID |
-| `CLIENT_SECRET` | Azure app secret (only for web Auth Code flow) |
-| `AZURE_OPENAI_KEY` | Azure OpenAI Service API key |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL (e.g., https://appliedai-openai.openai.azure.com/) |
-| `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name (gpt-4o-mini) |
-| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version (2024-02-15-preview) |
-| `REDIRECT_URI` | OAuth redirect URI — local: `http://localhost:8000/auth/callback`, prod: `https://appliedai-api.azurewebsites.net/auth/callback` |
+| Name | Purpose | Source |
+|------|---------|--------|
+| `CLIENT_ID` | Azure App Registration client ID | App Registration → Overview |
+| `TENANT_ID` | Azure tenant ID | App Registration → Overview |
+| `CLIENT_SECRET` | Client secret (Description: `poc-local-dev`) | Certificates & secrets |
+| `AZURE_OPENAI_KEY` | Azure OpenAI API key | AI Foundry → Settings |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | AI Foundry → Settings |
+| `AZURE_OPENAI_DEPLOYMENT` | Deployment name (gpt-4o-mini) | AI Foundry → Deployments |
+| `AZURE_OPENAI_API_VERSION` | API version (2024-12-01-preview) | Recommended version |
+| `REDIRECT_URI` | OAuth callback URL | `http://localhost:8000/auth/callback` (local) |
+
+## Azure Resources
+
+This project uses the following Azure resources with standardized naming:
+
+| Resource Type | Name | Purpose |
+|---------------|------|---------|
+| **App Registration** | `app-appliedai-classifier-poc` | OAuth 2.0 authentication |
+| **Resource Group** | `rg-appliedai-classifier-poc` | Resource container |
+| **AI Foundry Hub** | `aih-appliedai-classifier-poc` | AI platform hub (North Central US) |
+| **AI Foundry Project** | `aip-appliedai-classifier-poc` | AI project workspace |
+| **App Service** (future) | `app-appliedai-classifier-poc` | Web hosting |
+
+## Azure AI Foundry Setup
+
+This project uses **Azure AI Foundry** (formerly Azure AI Studio) as the centralized platform for AI operations. The existing `openai` Python SDK works seamlessly with AI Foundry - no code changes needed! AI Foundry provides enhanced monitoring, evaluation tools, and access to Prompt Flow for future enhancements.
 
 ## Testing Account
 

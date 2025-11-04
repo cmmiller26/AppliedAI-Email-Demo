@@ -1,13 +1,13 @@
-# Email Classification POC
+# AppliedAI Email Classifier (POC)
 
-Automated email classification system using Microsoft Graph API and Azure OpenAI Service, built with FastAPI.
+Automated email classification system using Microsoft Graph API and Azure AI Foundry with Azure OpenAI, built with FastAPI.
 
 ## Overview
 
 This proof-of-concept demonstrates:
 - **OAuth Authentication** with Microsoft Entra ID
 - **Email Fetching** via Microsoft Graph API
-- **AI Classification** using Azure OpenAI Service with GPT-4o-mini
+- **AI Classification** using Azure AI Foundry with Azure OpenAI (GPT-4o-mini)
 - **Automated Batch Processing** with idempotency and Outlook category assignment
 - **FastAPI Web Application** hosted on Azure App Service (planned)
 
@@ -18,7 +18,7 @@ This proof-of-concept demonstrates:
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd appliedai-demo
+cd appliedai-email-classifier-poc
 
 # Create virtual environment
 python -m venv .venv
@@ -28,23 +28,67 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
+### 2. Azure App Registration Setup
+
+Create an Azure App Registration for OAuth authentication:
+
+1. **Navigate to Azure Portal**
+   - Go to Azure Active Directory → App registrations
+   - Click "New registration"
+
+2. **Register Application**
+   - Name: `app-appliedai-classifier-poc`
+   - Supported account types: **Accounts in this organizational directory only (Single tenant)**
+   - Redirect URI: (Leave blank for now, add later)
+   - Click "Register"
+
+3. **Note Application Details**
+   - Copy the **Application (client) ID** → This is your `CLIENT_ID`
+   - Copy the **Directory (tenant) ID** → This is your `TENANT_ID`
+
+4. **Create Client Secret**
+   - Navigate to "Certificates & secrets"
+   - Click "New client secret"
+   - Description: `poc-local-dev`
+   - Expires: **24 months**
+   - Click "Add"
+   - ⚠️ **IMPORTANT**: Copy the secret **Value** immediately (not the Secret ID!)
+   - Save this as `CLIENT_SECRET` in your `.env` file
+   - **You cannot view this value again!**
+
+5. **Add Redirect URI**
+   - Navigate to "Authentication"
+   - Click "Add a platform" → "Web"
+   - Redirect URI: `http://localhost:8000/auth/callback`
+   - Click "Configure"
+
+6. **Configure API Permissions**
+   - Navigate to "API permissions"
+   - Click "Add a permission" → "Microsoft Graph" → "Delegated permissions"
+   - Add these permissions:
+     - ✅ `Mail.Read` - Read user mail
+     - ✅ `Mail.ReadWrite` - Read and write user mail (for category assignment)
+     - ✅ `offline_access` - Maintain access to data
+   - Click "Add permissions"
+   - **Optional**: Click "Grant admin consent" (requires admin rights)
+
+### 3. Configuration
 
 ```bash
 # Copy environment template
 cp .env.example .env
 
-# Edit .env and add your credentials:
-# - CLIENT_ID (Azure Entra app ID)
-# - CLIENT_SECRET (Azure app secret)
-# - TENANT_ID (Azure tenant ID)
-# - AZURE_OPENAI_KEY (Azure OpenAI Service API key)
+# Edit .env and add your credentials from App Registration:
+# - CLIENT_ID (Application client ID from step 3)
+# - TENANT_ID (Directory tenant ID from step 3)
+# - CLIENT_SECRET (Secret Value from step 4)
+# - AZURE_OPENAI_KEY (Azure OpenAI API key via AI Foundry)
 # - AZURE_OPENAI_ENDPOINT (Azure OpenAI endpoint URL)
 # - AZURE_OPENAI_DEPLOYMENT (Deployment name: gpt-4o-mini)
-# - AZURE_OPENAI_API_VERSION (API version: 2024-10-21)
+# - AZURE_OPENAI_API_VERSION (API version: 2024-12-01-preview)
 ```
 
-### 3. Run the Application
+### 4. Run the Application
 
 ```bash
 # Start the FastAPI server
@@ -54,7 +98,7 @@ python -m uvicorn src.main:app --reload
 open http://localhost:8000
 ```
 
-### 4. Test the System
+### 5. Test the System
 
 ```bash
 # Authenticate
@@ -99,10 +143,10 @@ curl -X POST http://localhost:8000/inbox/process-new
 └────────┬────────────┬───┘
          │            │
          ▼            ▼
-┌──────────────┐  ┌──────────────┐
-│ Microsoft    │  │ Azure OpenAI │
-│ Graph API    │  │   Service    │
-└──────────────┘  └──────────────┘
+┌──────────────┐  ┌──────────────────────┐
+│ Microsoft    │  │ Azure AI Foundry     │
+│ Graph API    │  │ (Azure OpenAI)       │
+└──────────────┘  └──────────────────────┘
 ```
 
 ## API Endpoints
@@ -193,6 +237,8 @@ open https://outlook.com
 | [docs/API_SPEC.md](docs/API_SPEC.md) | Endpoint definitions and request/response formats |
 | [docs/CLASSIFICATION_SPEC.md](docs/CLASSIFICATION_SPEC.md) | AI categories, prompts, and classification logic |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, flow diagrams, data models |
+| [docs/AZURE_AI_FOUNDRY.md](docs/AZURE_AI_FOUNDRY.md) | Azure AI Foundry setup and features guide |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security best practices and compliance guide |
 | [docs/TESTING.md](docs/TESTING.md) | Testing guide and workflow |
 | [docs/POC_ROADMAP.md](docs/POC_ROADMAP.md) | Development plan and progress |
 | [CLAUDE.md](CLAUDE.md) | AI assistant instructions |
@@ -205,27 +251,28 @@ open https://outlook.com
 | **ASGI Server** | Uvicorn + Gunicorn |
 | **Authentication** | MSAL (Microsoft Authentication Library) |
 | **HTTP Client** | httpx |
-| **AI/ML** | Azure OpenAI Service (GPT-4o-mini) |
+| **AI Platform** | Azure AI Foundry |
+| **AI Model** | Azure OpenAI Service (GPT-4o-mini) via AI Foundry |
 | **Date Parsing** | python-dateutil |
 | **Deployment** | Azure App Service (planned) |
 
 ## Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `CLIENT_ID` | Azure Entra app client ID | `edd9d097-4e9f-...` |
-| `TENANT_ID` | Azure tenant ID | `d2ecbd81-bc7c-...` |
-| `CLIENT_SECRET` | Azure app secret | `secret123...` |
-| `AZURE_OPENAI_KEY` | Azure OpenAI Service API key | `abc123...` |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://appliedai-openai.openai.azure.com/` |
-| `AZURE_OPENAI_DEPLOYMENT` | Azure OpenAI deployment name | `gpt-4o-mini` |
-| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version | `2024-10-21` |
-| `REDIRECT_URI` | OAuth redirect URI | `http://localhost:8000/auth/callback` |
+| Variable | Description | Example | Where to Find |
+|----------|-------------|---------|---------------|
+| `CLIENT_ID` | Azure App Registration client ID | `edd9d097-4e9f-...` | App Registration → Overview |
+| `TENANT_ID` | Azure tenant (directory) ID | `d2ecbd81-bc7c-...` | App Registration → Overview |
+| `CLIENT_SECRET` | Client secret value | `secret123...` | Certificates & secrets (Description: `poc-local-dev`) |
+| `AZURE_OPENAI_KEY` | Azure OpenAI API key | `abc123...` | AI Foundry Project → Settings |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://aih-appliedai-classifier-poc.cognitiveservices.azure.com/` | AI Foundry Project → Settings |
+| `AZURE_OPENAI_DEPLOYMENT` | Model deployment name | `gpt-4o-mini` | AI Foundry Project → Deployments |
+| `AZURE_OPENAI_API_VERSION` | API version | `2024-12-01-preview` | Use recommended version |
+| `REDIRECT_URI` | OAuth redirect URI | `http://localhost:8000/auth/callback` | Must match App Registration |
 
 ## Project Structure
 
 ```
-appliedai-demo/
+appliedai-email-classifier-poc/
 ├── src/                    # Source code
 │   ├── __init__.py
 │   ├── main.py             # Main FastAPI application
@@ -330,11 +377,52 @@ These will be addressed in future phases (see Future Enhancements below).
 
 ### Authentication Issues
 
-**Problem:** Can't authenticate
-**Solution:** Check `CLIENT_ID`, `TENANT_ID`, `CLIENT_SECRET` in `.env`
+**Problem:** Can't authenticate / "Invalid client secret"
+**Solution:**
+1. Verify `CLIENT_ID`, `TENANT_ID`, `CLIENT_SECRET` in `.env`
+2. Check client secret hasn't expired (24-month expiration)
+3. Ensure client secret **Value** was copied (not Secret ID)
+4. Recreate client secret if needed (Description: `poc-local-dev`)
+
+**Problem:** "Redirect URI mismatch"
+**Solution:**
+1. Check `REDIRECT_URI` in `.env` matches Azure App Registration
+2. Azure Portal → App Registration → Authentication → Web → Redirect URIs
+3. Must be exactly: `http://localhost:8000/auth/callback`
+
+**Problem:** "Insufficient permissions" error
+**Solution:**
+1. Azure Portal → App Registration → API permissions
+2. Ensure these are added:
+   - Mail.Read
+   - Mail.ReadWrite
+   - offline_access
+3. Grant admin consent if available
 
 **Problem:** Token expired
-**Solution:** Re-authenticate at `http://localhost:8000/auth/login`
+**Solution:**
+- POC: Re-authenticate at `http://localhost:8000/auth/login`
+- Access tokens expire after ~1 hour
+- Phase 8 will implement automatic refresh
+
+### Client Secret Management
+
+**Problem:** "I lost my client secret value"
+**Solution:**
+- You cannot retrieve the original value
+- Create a new client secret:
+  1. Azure Portal → App Registration → Certificates & secrets
+  2. New client secret
+  3. Description: `poc-local-dev-2` (or similar)
+  4. Copy value immediately
+  5. Update `.env` file
+  6. Delete old secret
+
+**Problem:** "Client secret expired"
+**Solution:**
+- Set expiration to 24 months when creating
+- Set calendar reminder to rotate before expiration
+- For rotation: Create new secret → Update `.env` → Delete old secret
 
 ### Email Fetching Issues
 

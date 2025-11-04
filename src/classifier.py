@@ -1,8 +1,12 @@
 """
-Email Classification Module using Azure OpenAI Service
+Email Classification Module using Azure AI Foundry with Azure OpenAI
 
 This module provides functionality to classify emails into preset categories
-using GPT models hosted on Azure OpenAI Service.
+using GPT models hosted on Azure AI Foundry with Azure OpenAI Service.
+
+The module uses the OpenAI Python SDK which works seamlessly with AI Foundry -
+no code changes needed! AI Foundry provides enhanced monitoring, evaluation tools,
+and access to advanced features like Prompt Flow.
 """
 
 import os
@@ -79,7 +83,7 @@ def sanitize_input(text: str) -> str:
 
 def classify_email(subject: str, body: str, from_address: str) -> Dict[str, any]:
     """
-    Classifies an email using Azure OpenAI Service.
+    Classifies an email using Azure OpenAI Service via Azure AI Foundry.
 
     Args:
         subject: Email subject line
@@ -102,11 +106,11 @@ def classify_email(subject: str, body: str, from_address: str) -> Dict[str, any]
         }
     """
     try:
-        # Initialize Azure OpenAI client
+        # Initialize Azure OpenAI client (works with AI Foundry - no code changes needed!)
         client = AzureOpenAI(
             api_key=os.getenv("AZURE_OPENAI_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")  # Points to AI Foundry's OpenAI resource
         )
 
         # Sanitize inputs
@@ -120,7 +124,7 @@ From: {from_address}
 Subject: {subject_clean}
 Body Preview: {body_preview}"""
 
-        # Call Azure OpenAI Service
+        # Call Azure OpenAI (via AI Foundry)
         response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
             messages=[

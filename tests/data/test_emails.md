@@ -1,4 +1,4 @@
-# Test Emails for Email Classification POC
+# Test Emails for AppliedAI Email Classifier (POC)
 
 ## Category: URGENT 🔴
 
